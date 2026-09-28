@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useXTerm } from "react-xtermjs";
 import { FitAddon } from "@xterm/addon-fit";
+import { enableFastTerminalRenderer } from "@/features/terminal/fast-renderer";
 import { AlertCircle, Eye, Users } from "lucide-react";
 import {
   resolveShareLink,
@@ -148,6 +149,7 @@ export function GuestTerminalView({
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
+    enableFastTerminalRenderer(terminal);
     terminal.open(xtermRef.current);
     fitAddon.fit();
 

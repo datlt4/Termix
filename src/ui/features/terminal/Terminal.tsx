@@ -104,6 +104,7 @@ import {
   getUseRightClickCopyPaste,
 } from "./terminal-clipboard.ts";
 import { quoteTerminalImagePath } from "./terminal-image-path.ts";
+import { enableFastTerminalRenderer } from "./fast-renderer.ts";
 import { hydrateLocalSharedHostAuth } from "@/lib/remote-server-api.ts";
 import {
   getUserPreferences,
@@ -475,8 +476,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const autocompleteSelectedIndexRef = useRef(0);
     const autosuggestionRef = useRef("");
     const autosuggestionSuppressedRef = useRef(false);
+    const autosuggestionRafRef = useRef<number | null>(null);
 
     const searchAddonRef = useRef<SearchAddon | null>(null);
+    const activeRendererRef = useRef<"webgl" | "dom">("dom");
     const searchInputRef = useRef<HTMLInputElement | null>(null);
     const [showSearch, setShowSearch] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
@@ -706,10 +709,24 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     }, [clearAutosuggestion, getCursorScreenPosition, isAutocompleteEnabled]);
 
     const scheduleAutosuggestionUpdate = useCallback(() => {
-      window.requestAnimationFrame(() => {
+      // Coalesce bursts: high-volume terminal output can queue one rAF per
+      // websocket message, and each callback does DOM measurement work.
+      // Only ever keep a single update pending per frame.
+      if (autosuggestionRafRef.current !== null) return;
+      autosuggestionRafRef.current = window.requestAnimationFrame(() => {
+        autosuggestionRafRef.current = null;
         updateAutosuggestion();
       });
     }, [updateAutosuggestion]);
+
+    useEffect(() => {
+      return () => {
+        if (autosuggestionRafRef.current !== null) {
+          window.cancelAnimationFrame(autosuggestionRafRef.current);
+          autosuggestionRafRef.current = null;
+        }
+      };
+    }, []);
 
     const acceptAutosuggestion = useCallback(() => {
       const suffix = autosuggestionRef.current;
@@ -1184,18 +1201,30 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       return passwordToFill;
     }
 
-    function maybeOfferPasswordFill(strippedData: string) {
+    function maybeOfferPasswordFill(rawData: string) {
       // PTY output can split a short prompt like "[sudo] password for user: "
       // across multiple WebSocket chunks, so match against a rolling buffer
       // of recent output rather than each chunk in isolation.
-      const buffered = (passwordPromptBufferRef.current + strippedData).slice(
-        -200,
-      );
-      passwordPromptBufferRef.current = buffered;
+      //
+      // The buffer keeps the last ~250 chars of RAW output (a full prompt
+      // line fits easily) and only that tail is ANSI-stripped on each call.
+      // Trimming at a newline keeps us from cutting a line in half; a lone
+      // over-long line is trimmed mid-line but any leading escape-sequence
+      // fragment left behind is harmless for the prompt patterns below.
+      let raw = passwordPromptBufferRef.current + rawData;
+      if (raw.length > 250) {
+        const lineStart = raw.lastIndexOf("\n", 250);
+        raw = lineStart >= 0 ? raw.slice(lineStart + 1) : raw.slice(-250);
+      }
+      passwordPromptBufferRef.current = raw;
 
+      const stripped = raw.replace(
+        /\x1b(?:[@-Z\\-_]|\[[0-9:;<=>?!]*[@-~])/g,
+        "",
+      );
       const passwordPromptPattern =
         /(?:\[sudo\][^\n\r]*:\s*$|sudo:[^\n\r]*password[^\n\r]*required|password for [^\n\r]*:\s*$|Password:\s*$|password:\s*$)/im;
-      if (!passwordPromptPattern.test(buffered)) return;
+      if (!passwordPromptPattern.test(stripped)) return;
 
       const hasStoredPassword =
         hostConfig.terminalConfig?.sudoPassword ||
@@ -1206,7 +1235,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       passwordPromptShownRef.current = true;
       passwordPromptBufferRef.current = "";
-      const isSudoPrompt = /(?:\[sudo\]|sudo:)/i.test(buffered);
+      const isSudoPrompt = /(?:\[sudo\]|sudo:)/i.test(stripped);
 
       confirmWithToast(
         t("terminal.passwordPromptFillTitle"),
@@ -1789,13 +1818,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               const output = applyLocalEchoToOutput(msg.data);
               terminal.write(formatTerminalOutput(output));
               scheduleAutosuggestionUpdate();
-              // Strip ANSI escape codes before testing — newer sudo versions (Ubuntu 26.04+)
-              // emit colored prompts with embedded escape sequences that break the regex.
-              const strippedData = msg.data.replace(
-                /\x1b(?:[@-Z\\-_]|\[[0-9:;<=>?!]*[@-~])/g,
-                "",
-              );
-              maybeOfferPasswordFill(strippedData);
+              // Maybe offer to fill a password prompt. The handler keeps a
+              // small rolling buffer and ANSI-strips only its tail, so this
+              // stays cheap even during high-volume output.
+              maybeOfferPasswordFill(msg.data);
             } else {
               const stringData = String(msg.data);
               const output = applyLocalEchoToOutput(stringData);
@@ -2834,6 +2860,9 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       terminal.loadAddon(unicode11Addon);
       terminal.loadAddon(webLinksAddon);
       terminal.loadAddon(searchAddon);
+      // GPU-accelerated rendering (falls back to the DOM renderer when
+      // WebGL2 is unavailable or fails to initialize).
+      activeRendererRef.current = enableFastTerminalRenderer(terminal);
 
       searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
         setSearchResultIndex(resultIndex);

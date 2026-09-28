@@ -6,6 +6,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { RobustClipboardProvider } from "@/lib/clipboard-provider";
 import { copyToClipboard, readFromClipboard } from "@/lib/clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { enableFastTerminalRenderer } from "@/features/terminal/fast-renderer";
 import { Button } from "@/components/button.tsx";
 import { Select2 } from "@/components/select2";
 import { Card, CardContent } from "@/components/card.tsx";
@@ -88,6 +89,7 @@ function ConsoleTerminalInner({
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(clipboardAddon);
     terminal.loadAddon(webLinksAddon);
+    enableFastTerminalRenderer(terminal);
 
     const fontConfig = TERMINAL_FONTS.find(
       (f) => f.value === terminalConfig.fontFamily,

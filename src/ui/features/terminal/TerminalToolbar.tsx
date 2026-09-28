@@ -388,7 +388,9 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
             );
           });
         previousMetrics = next;
-        setMetrics(next);
+        // Skip the state update (and the resulting re-render) when nothing
+        // moved — this polls every few seconds.
+        if (changed) setMetrics(next);
         return changed;
       } catch {
         // Retain the previous sample after a transient polling error.

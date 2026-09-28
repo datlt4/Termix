@@ -7,6 +7,7 @@ import {
 } from "react";
 import { useXTerm } from "react-xtermjs";
 import { FitAddon } from "@xterm/addon-fit";
+import { enableFastTerminalRenderer } from "@/features/terminal/fast-renderer";
 import { useTranslation } from "react-i18next";
 import { TriangleAlert } from "lucide-react";
 import { isElectron } from "@/lib/electron";
@@ -289,6 +290,7 @@ export const Serial = forwardRef<SerialHandle, SerialProps>(function Serial(
     const fitAddon = new FitAddon();
     fitAddonRef.current = fitAddon;
     terminal.loadAddon(fitAddon);
+    enableFastTerminalRenderer(terminal);
     terminal.options.cursorBlink = DEFAULT_TERMINAL_CONFIG.cursorBlink;
     terminal.options.scrollback = DEFAULT_TERMINAL_CONFIG.scrollback;
 

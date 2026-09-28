@@ -15,6 +15,7 @@ import {
 } from "@/features/terminal/terminal-clipboard";
 import { RobustClipboardProvider } from "@/lib/clipboard-provider";
 import { copyToClipboard, readFromClipboard } from "@/lib/clipboard";
+import { enableFastTerminalRenderer } from "@/features/terminal/fast-renderer";
 
 export function LocalTerminal({
   instanceId,
@@ -76,6 +77,7 @@ export function LocalTerminal({
     fitAddonRef.current = fitAddon;
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(clipboardAddon);
+    enableFastTerminalRenderer(terminal);
     fitAddon.fit();
 
     async function writeTextToClipboard(text: string): Promise<boolean> {
