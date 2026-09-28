@@ -7,11 +7,13 @@ import {
 } from "react";
 import { useXTerm } from "react-xtermjs";
 import { FitAddon } from "@xterm/addon-fit";
+
 import { TriangleAlert } from "lucide-react";
 import { useTranslation, useTheme } from "@termix/plugin-sdk/frontend";
 import {
   DEFAULT_TERMINAL_CONFIG,
   TERMINAL_FONTS,
+  enableFastTerminalRenderer,
   ensureTerminalFontsLoaded,
   resolveTermixThemeColors,
 } from "@termix/plugin-sdk/ui";
@@ -264,6 +266,7 @@ export const Serial = forwardRef<SerialHandle, SerialProps>(function Serial(
     const fitAddon = new FitAddon();
     fitAddonRef.current = fitAddon;
     terminal.loadAddon(fitAddon);
+    enableFastTerminalRenderer(terminal);
     terminal.options.cursorBlink = true;
     terminal.options.scrollback = 10000;
 

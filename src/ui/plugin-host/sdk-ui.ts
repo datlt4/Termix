@@ -106,6 +106,8 @@ export { HostKeyVerificationDialog } from "@/ssh/dialogs/HostKeyVerificationDial
 // Terminal look: themes, fonts and clipboard, shared by every terminal-like
 // surface (the SSH and local terminals, the docker console, serial).
 export * from "@/lib/terminal-themes";
+// GPU renderer selection, shared by every terminal-like surface.
+export * from "@/lib/fast-renderer";
 export { resolveTermixThemeColors } from "@/lib/terminal-look/terminal-theme";
 export { ensureTerminalFontsLoaded } from "@/lib/terminal-look/terminal-global-styles";
 export * from "@/lib/terminal-look/terminal-font-zoom";

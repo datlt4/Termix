@@ -57,6 +57,76 @@ interface ProtectedRange {
 
 const MAX_LINE_LENGTH = 2000;
 
+/**
+ * A single chunk with more lines than this is bulk output (cat, ls, log
+ * tail). Highlighting it is not worth blocking the main thread over, and
+ * the per-line guards inside the pipeline would make it O(chunk) anyway.
+ */
+const MAX_CHUNK_LINES = 300;
+
+/**
+ * Adaptive throughput governor for the highlighter.
+ *
+ * The highlighter runs on the main thread in the websocket output hot
+ * path. While the user is typing at a prompt, output arrives slowly and
+ * highlighting is essentially free. During bulk output (cat of a big
+ * file, ls -laR, tailing logs) the output rate spikes and per-chunk
+ * highlighting saturates the main thread — writes queue up behind it and
+ * the terminal feels slow and scrolls jerkily, which is exactly the
+ * behavior native clients like Termius never show.
+ *
+ * The governor tracks the sustained output rate with an exponential moving
+ * average. Above the high threshold it pauses highlighting for a cooldown
+ * period; once the stream calms back down to interactive levels
+ * highlighting resumes automatically.
+ */
+const GOVERNOR = {
+  highThresholdBps: 120_000, // >120 KB/s sustained => bulk output
+  lowThresholdBps: 40_000, // below this the stream is interactive again
+  sampleMs: 100,
+  windowMs: 1_500,
+  cooldownMs: 1_500,
+} as const;
+
+let govAccumulatedBytes = 0;
+let govAccumulatedStart = 0;
+let govEmaRateBps = 0;
+let govPausedUntil = 0;
+// Unit tests exercise the highlighter directly with many small inputs in
+// rapid succession; disable the governor there so its state never leaks
+// between cases.
+const govEnabled =
+  typeof process === "undefined" || process.env?.NODE_ENV !== "test";
+
+function governorCheck(byteLength: number, now: number): boolean {
+  if (!govEnabled) return false;
+  if (now < govPausedUntil) return true;
+
+  if (govAccumulatedStart === 0) govAccumulatedStart = now;
+  govAccumulatedBytes += byteLength;
+
+  if (now - govAccumulatedStart < GOVERNOR.sampleMs) return false;
+
+  const elapsed = now - govAccumulatedStart;
+  const instantRateBps = (govAccumulatedBytes / elapsed) * 1000;
+  const alpha = Math.min(1, elapsed / GOVERNOR.windowMs);
+  govEmaRateBps =
+    govEmaRateBps === 0
+      ? instantRateBps
+      : govEmaRateBps * (1 - alpha) + instantRateBps * alpha;
+  govAccumulatedBytes = 0;
+  govAccumulatedStart = now;
+
+  if (govEmaRateBps >= GOVERNOR.highThresholdBps) {
+    govPausedUntil = now + GOVERNOR.cooldownMs;
+    return true;
+  }
+  if (govEmaRateBps < GOVERNOR.lowThresholdBps) {
+    govEmaRateBps = 0;
+  }
+  return false;
+}
+
 // Cursor-positioning, erase, and private mode sequences used by TUI apps
 // (mc, nano, vim, htop). If a chunk contains these, highlighting can inject
 // extra SGR bytes into a full-screen redraw and corrupt xterm's cursor state.
@@ -82,8 +152,18 @@ const STRIP_ANSI_RE = /\x1b(?:[@-Z\\-_]|\[[0-9:;<=>?!]*[@-~])/g;
 const SSH_BRACKET_HEADING_RE =
   /(?:(?<=^)|(?<=\s))\[[\w.-]+@[\w.-]+(?:[^\]\r\n]*)?\]/g;
 
-function isShellPromptLine(bare: string): boolean {
-  const plain = bare.replace(STRIP_ANSI_RE, "");
+/**
+ * Cheap per-line pre-filter. Every highlight pattern requires at least one
+ * of: a digit (timestamps, IPs, versions, labeled numbers), a path
+ * (~/ or /x/y), a URL (http:// or https://), or one of the log keyword
+ * tokens. Lines without any of those cannot match, so we skip the whole
+ * 13-pattern pipeline for them (e.g. plain prose from a man page or
+ * README).
+ */
+const LINE_GATE_RE =
+  /\d|~\/|\/[^\s"'`|<>&;\\]+\/|https?:\/\/|\b(?:error|fatal|critical|fail(?:ed)?|denied|exception|warn(?:ing)?|alert|caution|success(?:ful(?:ly)?)?|pass(?:ed)?|complete(?:d)?|ok|info|debug|trace|verbose|port|exit|code|status|signal|returned?)\b|\[(?:(?:[01]\d|2[0-3]):[0-5]\d|error|fatal|critical|warn(?:ing)?|info|debug|trace)\]/i;
+
+function isShellPromptLine(plain: string): boolean {
   // Matches a trailing prompt: "user@host:~$ ", "root@pi:/home/pi# ", "[user@host dir]$ "
   if (/(?:[\w.-]+@[\w.-]+|[\w.-]+).*?[$#%>]\s*$/.test(plain)) return true;
   // Matches a leading prompt followed by a command: "user@host:/path$ cmd arg"
@@ -434,14 +514,14 @@ function highlightLine(
 
   if (!bare.trim()) return line;
   if (bare.length > MAX_LINE_LENGTH) return line;
-  if (isShellPromptLine(bare)) return line;
 
-  // Compute protected ranges (e.g. SSH bracket headings) against the fully
-  // stripped line rather than per-ANSI-segment text. A colored prompt theme
-  // (e.g. "[<color>user<reset>@<color>host<reset>]") splits the heading across
-  // multiple plain-text segments, so matching per-segment would miss it and
-  // let a username like "warning" get wrongly highlighted as a log level.
+  // Strip ANSI once; the prompt check, the length check, the protected
+  // ranges and the line gate all work on the plain text.
   const plainLine = bare.replace(STRIP_ANSI_RE, "");
+  if (!plainLine.trim()) return line;
+  if (isShellPromptLine(plainLine)) return line;
+  if (!LINE_GATE_RE.test(plainLine)) return line;
+
   const lineProtectedRanges = getProtectedRanges(plainLine);
 
   const segments = parseAnsiSegments(bare);
@@ -484,7 +564,12 @@ export function highlightTerminalOutput(
   const activePatterns = buildActivePatterns(options);
   if (activePatterns.length === 0) return text;
 
+  // Pause highlighting while bulk output is streaming so the main thread
+  // stays free for parsing and rendering. See the governor above.
+  if (governorCheck(text.length, Date.now())) return text;
+
   const lines = text.split("\n");
+  if (lines.length > MAX_CHUNK_LINES) return text;
   const endsWithNewline = text.endsWith("\n");
   const hasMultipleLines = lines.length > 1;
 

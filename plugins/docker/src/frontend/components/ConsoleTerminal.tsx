@@ -10,6 +10,7 @@ import {
   Select2,
   TERMINAL_FONTS,
   copyToClipboard,
+  enableFastTerminalRenderer,
   ensureTerminalFontsLoaded,
   isElectron,
   pluginWsUrl,
@@ -25,6 +26,7 @@ import { useXTerm } from "react-xtermjs";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+
 import { Terminal as TerminalIcon, Power, PowerOff } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -95,6 +97,7 @@ function ConsoleTerminalInner({
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(clipboardAddon);
     terminal.loadAddon(webLinksAddon);
+    enableFastTerminalRenderer(terminal);
 
     const fontConfig = TERMINAL_FONTS.find(
       (f) => f.value === terminalConfig.fontFamily,

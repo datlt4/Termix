@@ -719,6 +719,24 @@ export function AppShell({
   // without going through synthetic DOM events (which are unreliable).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+L (Cmd+L on macOS) — open a new local terminal. Electron only:
+      // the local terminal needs the embedded PTY (window.electronAPI),
+      // which does not exist in the browser build.
+      if (
+        isElectron() &&
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.code === "KeyL"
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        // The "local-terminal" tab type is registered by the ssh-terminal
+        // plugin (multiInstance), so each press opens a fresh session.
+        openSingletonTab("local-terminal");
+        return;
+      }
+
       if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
         if (e.code === "KeyF") {
           e.preventDefault();

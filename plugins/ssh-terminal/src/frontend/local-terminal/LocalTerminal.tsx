@@ -14,6 +14,7 @@ import {
   DEFAULT_TERMINAL_CONFIG,
   TERMINAL_FONTS,
   ensureTerminalFontsLoaded,
+  enableFastTerminalRenderer,
   RobustClipboardProvider,
   copyToClipboard,
   readFromClipboard,
@@ -80,6 +81,7 @@ export function LocalTerminal({
     fitAddonRef.current = fitAddon;
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(clipboardAddon);
+    enableFastTerminalRenderer(terminal);
     fitAddon.fit();
 
     async function writeTextToClipboard(text: string): Promise<boolean> {
