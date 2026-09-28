@@ -26,6 +26,8 @@ describe("defaultHostSidebarPreferences", () => {
         trayTrigger: "always",
         statusColorScheme: "accent",
         openOnDoubleClick: false,
+        showFolderPaths: true,
+        focusExistingTab: true,
       },
     });
   });
@@ -63,6 +65,8 @@ describe("sanitizeHostSidebarPreferences", () => {
         trayTrigger: "click",
         statusColorScheme: "status",
         openOnDoubleClick: true,
+        showFolderPaths: false,
+        focusExistingTab: false,
       },
     };
     expect(sanitizeHostSidebarPreferences(valid)).toEqual(valid);
@@ -76,6 +80,26 @@ describe("sanitizeHostSidebarPreferences", () => {
       sanitizeHostSidebarPreferences({ display: { openOnDoubleClick: "yes" } })
         .display.openOnDoubleClick,
     ).toBe(false);
+  });
+
+  it("defaults showFolderPaths to true when missing or not a boolean", () => {
+    expect(
+      sanitizeHostSidebarPreferences({ display: {} }).display.showFolderPaths,
+    ).toBe(true);
+    expect(
+      sanitizeHostSidebarPreferences({ display: { showFolderPaths: "no" } })
+        .display.showFolderPaths,
+    ).toBe(true);
+  });
+
+  it("defaults focusExistingTab to true when missing or not a boolean", () => {
+    expect(
+      sanitizeHostSidebarPreferences({ display: {} }).display.focusExistingTab,
+    ).toBe(true);
+    expect(
+      sanitizeHostSidebarPreferences({ display: { focusExistingTab: "no" } })
+        .display.focusExistingTab,
+    ).toBe(true);
   });
 
   it("falls back to defaults for invalid enum values", () => {
@@ -94,12 +118,13 @@ describe("sanitizeHostSidebarPreferences", () => {
     const result = sanitizeHostSidebarPreferences({
       filters: {
         status: ["online", "bogus", "pinned"],
-        authType: ["key", "nope"],
+        authType: ["key", "corp-sso", "Not A Type!", 7],
         tags: ["prod", 42, null],
       },
     });
     expect(result.filters.status).toEqual(["online", "pinned"]);
-    expect(result.filters.authType).toEqual(["key"]);
+    // Plugins add auth types, so any well-formed id is kept.
+    expect(result.filters.authType).toEqual(["key", "corp-sso"]);
     expect(result.filters.tags).toEqual(["prod"]);
   });
 

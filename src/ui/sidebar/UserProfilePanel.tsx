@@ -1,18 +1,15 @@
 import { useState, useRef, useEffect } from "react";
+import { AuthEnrollmentSections } from "./AuthEnrollmentSections";
 import { useTranslation } from "react-i18next";
 import { copyToClipboard } from "@/lib/clipboard";
 import {
   getUserInfo,
-  getRemoteSyncUserInfo,
   getApiKeys,
   createApiKey,
   deleteApiKey,
   changePassword,
   deleteAccount,
   logoutUser,
-  setupTOTP,
-  enableTOTP,
-  disableTOTP,
   getVersionInfo,
   releaseUrlFrom,
   getUserRoles,
@@ -22,27 +19,12 @@ import {
 import { getDatabaseTransferUrl } from "@/lib/database-transfer-url";
 import { readRailPreference, setRailPreference } from "./rail-preferences";
 import { useHostSidebarPreferences } from "./tree/hooks/useHostSidebarPreferences";
-import {
-  deleteWebAuthnCredential,
-  listWebAuthnCredentials,
-  registerWebAuthnCredential,
-  type WebAuthnCredentialSummary,
-  type WebAuthnUserVerification,
-} from "@/api/webauthn-api";
-import type { UserRole } from "@/main-axios";
+import type { LinkedAccountInfo, UserRole } from "@/main-axios";
 import type React from "react";
 import { isElectron } from "@/lib/electron";
-import { RemoteSyncPanel } from "@/settings/RemoteSyncPanel.tsx";
-import { shouldForceLocalPreferenceStorage } from "@/settings/remote-sync-state";
-import { C2STunnelPresetManager } from "@/user/C2STunnelPresetManager";
+import { shell } from "@/plugin-host/shell-bridge";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
-import {
-  MAX_TRANSFER_CONCURRENCY,
-  TRANSFER_CONCURRENCY_STORAGE_KEY,
-  getTransferConcurrency,
-  setTransferConcurrency,
-} from "@/features/file-manager/local-transfer-utils";
 import { VersionBadge } from "@/components/version-badge";
 import {
   Dialog,
@@ -53,9 +35,7 @@ import {
   DialogFooter,
 } from "@/components/dialog";
 import {
-  Activity,
   AlertCircle,
-  CheckCircle2,
   ChevronDown,
   Copy,
   Database,
@@ -72,11 +52,9 @@ import {
   Trash2,
   Type,
   User,
-  X,
 } from "lucide-react";
-import { readHiddenRailTabs } from "@/sidebar/hidden-rail-tabs";
 import { SettingRow, FakeSwitch } from "@/components/section-card";
-import { visibleRailItems } from "./rail-items";
+import { NavigationVisibilityToggles } from "./NavigationVisibilityToggles";
 import { InterfacePresetSettings } from "./InterfacePresetSettings";
 import { useUiPreferencesContext } from "@/contexts/UiPreferencesContext";
 import { KeybindingsDialog } from "./KeybindingsDialog";
@@ -96,6 +74,12 @@ import { changeAppLanguage, normalizeLanguageCode } from "@/i18n/i18n";
 import { Select2 } from "@/components/select2";
 import { clearLocalAdaptivePreferences } from "@/lib/local-adaptive-preferences";
 import { ConnectionDefaultsSettings } from "./ConnectionDefaultsSettings";
+import {
+  FeatureSettingsSection,
+  featureSectionId,
+  useFeatureSettings,
+  type FeatureSectionId,
+} from "@/settings/FeatureSettingsSections";
 
 type UserProfileSection =
   | "account"
@@ -104,7 +88,7 @@ type UserProfileSection =
   | "security"
   | "api-keys"
   | "data"
-  | "c2s-tunnels";
+  | FeatureSectionId;
 
 const THEMES: { id: ThemeId; preview: string }[] = [
   { id: "system", preview: "auto" },
@@ -211,6 +195,40 @@ type ApiErrorLike = {
 
 function apiErrorMessage(error: unknown, fallback: string) {
   return (error as ApiErrorLike).response?.data?.error || fallback;
+}
+
+// Local transfer concurrency is the file-manager plugin's own setting; this
+// panel just offers the control, using the same storage key the plugin reads.
+const TRANSFER_CONCURRENCY_STORAGE_KEY =
+  "termix:file-manager:transfer-concurrency";
+const DEFAULT_TRANSFER_CONCURRENCY = 4;
+const MAX_TRANSFER_CONCURRENCY = 8;
+
+function clampTransferConcurrency(value: unknown): number {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return DEFAULT_TRANSFER_CONCURRENCY;
+  return Math.min(MAX_TRANSFER_CONCURRENCY, Math.max(1, n));
+}
+
+function getTransferConcurrency(): number {
+  try {
+    const raw = localStorage.getItem(TRANSFER_CONCURRENCY_STORAGE_KEY);
+    return raw === null
+      ? DEFAULT_TRANSFER_CONCURRENCY
+      : clampTransferConcurrency(raw);
+  } catch {
+    return DEFAULT_TRANSFER_CONCURRENCY;
+  }
+}
+
+function setTransferConcurrency(value: number): number {
+  const clamped = clampTransferConcurrency(value);
+  try {
+    localStorage.setItem(TRANSFER_CONCURRENCY_STORAGE_KEY, String(clamped));
+  } catch {
+    // storage unavailable
+  }
+  return clamped;
 }
 
 type CreatedProfileApiKey = {
@@ -502,29 +520,20 @@ export function UserProfilePanel({
   onLogout,
   userPrefs,
   onPrefsChange,
-  remoteSyncInitialServerUrl,
-  remoteSyncReconnectRequested,
-  onRemoteSyncReconnectHandled,
 }: {
   username?: string;
   onLogout?: () => void;
-  remoteSyncInitialServerUrl?: string;
-  remoteSyncReconnectRequested?: boolean;
-  onRemoteSyncReconnectHandled?: () => void;
   userPrefs?: {
     reopenTabsOnLogin: boolean;
     storageMode?: string | null;
     commandAutocomplete?: boolean | null;
     commandPaletteEnabled?: boolean | null;
-    aiAssistantEnabled?: boolean | null;
-    aiReadOnlyCommands?: boolean | null;
     showHostTags?: boolean | null;
     hostTrayOnClick?: boolean | null;
     compactHostView?: boolean | null;
     pinAppRail?: boolean | null;
     expandAppRailOnHover?: boolean | null;
     showPinAppRailButton?: boolean | null;
-    foldersCollapsed?: boolean | null;
     confirmSnippetExecution?: boolean | null;
     disableUpdateCheck?: boolean | null;
     confirmTabClose?: boolean | null;
@@ -552,6 +561,7 @@ export function UserProfilePanel({
   const [openSections, setOpenSections] = useState<Set<UserProfileSection>>(
     () => new Set(["account"]),
   );
+  const featureSettings = useFeatureSettings("user");
 
   // User info
   const [userId, setUserId] = useState("");
@@ -566,27 +576,6 @@ export function UserProfilePanel({
   const [releaseUrl, setReleaseUrl] = useState("");
   const [isOidc, setIsOidc] = useState(false);
   const [isDualAuth, setIsDualAuth] = useState(false);
-
-  // TOTP
-  const [totpEnabled, setTotpEnabled] = useState(false);
-  const [totpStep, setTotpStep] = useState<
-    "idle" | "setup" | "verify" | "backup"
-  >("idle");
-  const [totpQrCode, setTotpQrCode] = useState("");
-  const [totpSecret, setTotpSecret] = useState("");
-  const [totpCode, setTotpCode] = useState("");
-  const [totpBackupCodes, setTotpBackupCodes] = useState<string[]>([]);
-  const [totpLoading, setTotpLoading] = useState(false);
-  const [showDisableTotp, setShowDisableTotp] = useState(false);
-  const [disableTotpInput, setDisableTotpInput] = useState("");
-  const [showAddTotp, setShowAddTotp] = useState(false);
-  const [addTotpInput, setAddTotpInput] = useState("");
-  const [addingTotpAuthenticator, setAddingTotpAuthenticator] = useState(false);
-  const [passkeys, setPasskeys] = useState<WebAuthnCredentialSummary[]>([]);
-  const [passkeyLoading, setPasskeyLoading] = useState(false);
-  const [passkeyName, setPasskeyName] = useState("");
-  const [passkeyUserVerification, setPasskeyUserVerification] =
-    useState<WebAuthnUserVerification>("preferred");
 
   // Delete account
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -632,51 +621,19 @@ export function UserProfilePanel({
     }
   }, [userPrefs?.storageMode]);
 
-  // Remote sync is not connected by default on the desktop app (it's an
-  // opt-in feature configured from this same panel). "cloud" storage mode
-  // and Termix ID both assume a real multi-device server account, so they
-  // stay hidden/forced-off until the user actually connects one.
-  const [isRemoteSyncConnected, setIsRemoteSyncConnected] = useState<
-    boolean | null
-  >(() => (isElectron() ? null : true));
+  // On the desktop app, the account it is linked to on a server, if any.
+  // "Cloud" storage only has somewhere to go once it is linked.
+  const [linkedAccount, setLinkedAccount] = useState<
+    LinkedAccountInfo | null | undefined
+  >(() => (isElectron() ? undefined : null));
+  const isLinked = !!linkedAccount;
 
   useEffect(() => {
-    if (!isElectron()) return;
-    let cancelled = false;
-    const refreshSyncStatus = () => {
-      window.electronAPI
-        ?.invoke?.("get-remote-sync-config")
-        .then((config) => {
-          if (!cancelled) {
-            setIsRemoteSyncConnected(
-              !!(config as { serverUrl?: string } | null)?.serverUrl,
-            );
-          }
-        })
-        .catch(() => {});
-    };
-    refreshSyncStatus();
-    const unsubscribe = window.electronAPI?.onRemoteSyncStatusChanged?.(() =>
-      refreshSyncStatus(),
-    );
-    return () => {
-      cancelled = true;
-      unsubscribe?.();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (
-      shouldForceLocalPreferenceStorage(
-        isElectron(),
-        isRemoteSyncConnected,
-        storageMode,
-      )
-    ) {
+    if (isElectron() && linkedAccount === null && storageMode === "cloud") {
       setStorageMode("local");
       onPrefsChange?.({ storageMode: "local" });
     }
-  }, [isRemoteSyncConnected, storageMode, onPrefsChange]);
+  }, [linkedAccount, storageMode, onPrefsChange]);
 
   // Settings toggles — all backed by localStorage
   const [commandAutocomplete, setCommandAutocomplete] = useState(
@@ -693,57 +650,12 @@ export function UserProfilePanel({
     return v !== null ? v === "true" : true;
   });
   const [keybindingsDialogOpen, setKeybindingsDialogOpen] = useState(false);
-  const [aiAssistantEnabled, setAiAssistantEnabled] = useState(false);
-  const [aiReadOnlyCommands, setAiReadOnlyCommands] = useState(false);
-  // Null until the status call answers; the whole section stays hidden while
-  // unknown so a user who cannot have the feature never sees it mentioned.
-  const [aiGloballyEnabled, setAiGloballyEnabled] = useState<boolean | null>(
-    null,
-  );
   // Sidebar display customization (density, tags, tray trigger, status
   // colors) now lives in the dedicated Customize Sidebar panel opened from
   // the Hosts toolbar, not here -- resetToDefaults still needs write access.
   const { update: updateSidebarPrefs } = useHostSidebarPreferences();
   const uiPrefs = useUiPreferencesContext();
 
-  useEffect(() => {
-    let cancelled = false;
-    import("@/api/ai-api")
-      .then(({ getAiStatus }) => getAiStatus())
-      .then((status) => {
-        if (cancelled) return;
-        setAiGloballyEnabled(status.globallyEnabled);
-        setAiAssistantEnabled(status.enabled);
-        setAiReadOnlyCommands(status.allowReadOnlyCommands);
-      })
-      .catch(() => {
-        if (!cancelled) setAiGloballyEnabled(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  /**
-   * Turning the assistant off also hides its rail tab, so declining removes
-   * the feature from view entirely rather than leaving an inert entry behind.
-   */
-  const applyAiEnabled = (enabled: boolean) => {
-    setAiAssistantEnabled(enabled);
-
-    const hidden = readHiddenRailTabs();
-    if (enabled) hidden.delete("ai");
-    else hidden.add("ai");
-
-    const serialized = JSON.stringify([...hidden]);
-    localStorage.setItem("hiddenRailTabs", serialized);
-    setHiddenRailTabs(hidden);
-    window.dispatchEvent(new Event("hiddenRailTabsChanged"));
-
-    if (storageMode === "cloud") {
-      saveToCloud({ aiAssistantEnabled: enabled, hiddenRailTabs: serialized });
-    }
-  };
   const [pinAppRail, setPinAppRail] = useState(() =>
     readRailPreference("pinAppRail"),
   );
@@ -753,12 +665,10 @@ export function UserProfilePanel({
   const [showPinAppRailButton, setShowPinAppRailButton] = useState(() =>
     readRailPreference("showPinAppRailButton"),
   );
-  // Read values are unused now that the Snippets settings UI lives in
-  // SnippetsPanel.tsx; the setters still back the cloud-sync/reset/snapshot
-  // machinery for these two localStorage-backed prefs below.
-  const [_foldersCollapsed, setFoldersCollapsed] = useState(
-    () => localStorage.getItem("defaultSnippetFoldersCollapsed") !== "false",
-  );
+  // Read value is unused; the setter still backs the cloud-sync/reset/
+  // snapshot machinery for this localStorage-backed pref below. The
+  // folder-collapse setting itself now lives in the snippets plugin's own
+  // user settings.
   const [_confirmSnippetExecution, setConfirmSnippetExecution] = useState(
     () => localStorage.getItem("confirmSnippetExecution") === "true",
   );
@@ -767,6 +677,9 @@ export function UserProfilePanel({
   );
   const [confirmTabClose, setConfirmTabClose] = useState(
     () => localStorage.getItem("confirmTabClose") === "true",
+  );
+  const [showTabNumbers, setShowTabNumbers] = useState(
+    () => localStorage.getItem("showTabNumbers") === "true",
   );
   const [hiddenRailTabs, setHiddenRailTabs] = useState<Set<string>>(() => {
     try {
@@ -785,17 +698,17 @@ export function UserProfilePanel({
 
   useEffect(() => {
     getUserInfo()
-      .then(async (localInfo) => {
-        setUserId(localInfo.userId);
-        setTotpEnabled(localInfo.totp_enabled ?? false);
-        setIsOidc(localInfo.is_oidc ?? false);
-        setIsDualAuth(localInfo.is_dual_auth ?? false);
-        const remoteInfo = await getRemoteSyncUserInfo();
-        const info = remoteInfo ?? localInfo;
-        setAccountUsername(info.username);
+      .then((info) => {
+        setUserId(info.userId);
+        setIsOidc(info.is_oidc ?? false);
+        setIsDualAuth(info.is_dual_auth ?? false);
+        const linked = info.linked ?? null;
+        setLinkedAccount(linked);
+        // A linked desktop is the account it is signed in to on the server.
+        setAccountUsername(linked?.username || info.username);
         setAccountTotpEnabled(info.totp_enabled ?? false);
         setUserRole(
-          info.is_admin
+          (linked ? linked.isAdmin : info.is_admin)
             ? t("newUi.sidebar.userProfile.roleAdministrator")
             : t("newUi.sidebar.userProfile.roleUser"),
         );
@@ -806,10 +719,17 @@ export function UserProfilePanel({
         } else {
           setAuthMethod(t("newUi.sidebar.userProfile.authMethodLocal"));
         }
-        if (remoteInfo) {
-          setUserRoles(remoteInfo.roles ?? []);
+        if (linked) {
+          setUserRoles(
+            linked.roles.map((name, index) => ({
+              id: index,
+              roleId: index,
+              roleName: name,
+              roleDisplayName: name,
+            })) as unknown as UserRole[],
+          );
         } else {
-          getUserRoles(localInfo.userId)
+          getUserRoles(info.userId)
             .then(({ roles }) => setUserRoles(roles ?? []))
             .catch(() => {});
         }
@@ -818,16 +738,28 @@ export function UserProfilePanel({
     getApiKeys()
       .then(({ apiKeys: keys }) => setApiKeys(keys))
       .catch(() => {});
-    listWebAuthnCredentials()
-      .then(({ credentials }) => setPasskeys(credentials ?? []))
-      .catch(() => {});
     getVersionInfo()
       .then((info) => {
         setVersion(info.localVersion);
         setVersionStatus(info.status ?? "unknown");
         setReleaseUrl(releaseUrlFrom(info));
       })
-      .catch(() => {});
+      .catch(() => {
+        // Backend/network unreachable (offline machine). The installer
+        // version is still known locally via Electron, so use that instead
+        // of leaving the version blank.
+        if (isElectron()) {
+          window.electronAPI
+            ?.getAppVersion?.()
+            .then((appVersion) => {
+              if (appVersion) {
+                setVersion(appVersion);
+                setVersionStatus("unknown");
+              }
+            })
+            .catch(() => {});
+        }
+      });
   }, [t]);
 
   // The rail can toggle these from its right-click menu while this panel is
@@ -877,7 +809,6 @@ export function UserProfilePanel({
         "pinAppRail",
         "expandAppRailOnHover",
         "showPinAppRailButton",
-        "defaultSnippetFoldersCollapsed",
         "snippetShowCommands",
         "confirmSnippetExecution",
         "disableUpdateCheck",
@@ -929,12 +860,6 @@ export function UserProfilePanel({
             String(prefs.commandPaletteEnabled),
           );
         }
-        if (prefs.aiAssistantEnabled != null) {
-          setAiAssistantEnabled(prefs.aiAssistantEnabled);
-        }
-        if (prefs.aiReadOnlyCommands != null) {
-          setAiReadOnlyCommands(prefs.aiReadOnlyCommands);
-        }
         // showHostTags/hostTrayOnClick/compactHostView/statusColorScheme are
         // no longer restored here -- useHostSidebarPreferences independently
         // fetches its own authoritative copy from /host-sidebar/preferences.
@@ -958,13 +883,6 @@ export function UserProfilePanel({
             String(prefs.showPinAppRailButton),
           );
           window.dispatchEvent(new Event("showPinAppRailButtonChanged"));
-        }
-        if (prefs.foldersCollapsed != null) {
-          setFoldersCollapsed(prefs.foldersCollapsed);
-          localStorage.setItem(
-            "defaultSnippetFoldersCollapsed",
-            String(prefs.foldersCollapsed),
-          );
         }
         if (prefs.confirmSnippetExecution != null) {
           setConfirmSnippetExecution(prefs.confirmSnippetExecution);
@@ -1040,8 +958,6 @@ export function UserProfilePanel({
     setShowPinAppRailButton(false);
     localStorage.setItem("showPinAppRailButton", "false");
     window.dispatchEvent(new Event("showPinAppRailButtonChanged"));
-    setFoldersCollapsed(true);
-    localStorage.removeItem("defaultSnippetFoldersCollapsed");
     setConfirmSnippetExecution(false);
     localStorage.setItem("confirmSnippetExecution", "false");
     setDisableUpdateCheck(false);
@@ -1065,7 +981,6 @@ export function UserProfilePanel({
         pinAppRail: false,
         expandAppRailOnHover: true,
         showPinAppRailButton: false,
-        foldersCollapsed: true,
         confirmSnippetExecution: false,
         disableUpdateCheck: false,
         confirmTabClose: false,
@@ -1154,18 +1069,6 @@ export function UserProfilePanel({
     localStorage.setItem("showPinAppRailButton", String(restoredShowPinButton));
     window.dispatchEvent(new Event("showPinAppRailButtonChanged"));
 
-    const restoredFolders =
-      restore("defaultSnippetFoldersCollapsed", null) !== "false";
-    setFoldersCollapsed(restoredFolders);
-    const snapFolders = hasSnap
-      ? snap["defaultSnippetFoldersCollapsed"]
-      : localStorage.getItem("defaultSnippetFoldersCollapsed");
-    if (snapFolders == null) {
-      localStorage.removeItem("defaultSnippetFoldersCollapsed");
-    } else {
-      localStorage.setItem("defaultSnippetFoldersCollapsed", snapFolders);
-    }
-
     const restoredConfirmSnippet =
       restore("confirmSnippetExecution", "false") === "true";
     setConfirmSnippetExecution(restoredConfirmSnippet);
@@ -1243,133 +1146,6 @@ export function UserProfilePanel({
       else next.add(id);
       return next;
     });
-  }
-
-  async function handleStartTotpSetup() {
-    setTotpLoading(true);
-    try {
-      const result = await setupTOTP();
-      setTotpQrCode(result.qr_code);
-      setTotpSecret(result.secret);
-      setTotpCode("");
-      setTotpStep("setup");
-    } catch {
-      toast.error(t("newUi.sidebar.userProfile.totpSetupFailed"));
-    } finally {
-      setTotpLoading(false);
-    }
-  }
-
-  async function handleAddTotpAuthenticator() {
-    if (!addTotpInput) {
-      toast.error(t("newUi.sidebar.userProfile.totpAddInputRequired"));
-      return;
-    }
-    setTotpLoading(true);
-    try {
-      const result = await setupTOTP(addTotpInput);
-      setTotpQrCode(result.qr_code);
-      setTotpSecret(result.secret);
-      setAddingTotpAuthenticator(true);
-      setShowAddTotp(false);
-      setAddTotpInput("");
-      setTotpStep("setup");
-    } catch (e: unknown) {
-      toast.error(
-        apiErrorMessage(e, t("newUi.sidebar.userProfile.totpAddFailed")),
-      );
-    } finally {
-      setTotpLoading(false);
-    }
-  }
-
-  async function handleVerifyTotp() {
-    if (!totpCode || totpCode.length !== 6) {
-      toast.error(t("newUi.sidebar.userProfile.totpEnter6Digits"));
-      return;
-    }
-    setTotpLoading(true);
-    try {
-      const result = await enableTOTP(totpCode);
-      setTotpBackupCodes(result.backup_codes ?? []);
-      setTotpEnabled(true);
-      if (!isRemoteSyncConnected) setAccountTotpEnabled(true);
-      setTotpStep("backup");
-      toast.success(t("newUi.sidebar.userProfile.totpEnabledSuccess"));
-    } catch (e: unknown) {
-      toast.error(
-        apiErrorMessage(e, t("newUi.sidebar.userProfile.totpInvalidCode")),
-      );
-    } finally {
-      setTotpLoading(false);
-    }
-  }
-
-  async function handleDisableTotp() {
-    if (!disableTotpInput) {
-      toast.error(t("newUi.sidebar.userProfile.totpDisableInputRequired"));
-      return;
-    }
-    setTotpLoading(true);
-    try {
-      await disableTOTP(disableTotpInput);
-      setTotpEnabled(false);
-      if (!isRemoteSyncConnected) setAccountTotpEnabled(false);
-      setShowDisableTotp(false);
-      setDisableTotpInput("");
-      toast.success(t("newUi.sidebar.userProfile.totpDisabledSuccess"));
-    } catch (e: unknown) {
-      toast.error(
-        apiErrorMessage(e, t("newUi.sidebar.userProfile.totpDisableFailed")),
-      );
-    } finally {
-      setTotpLoading(false);
-    }
-  }
-
-  async function handleRegisterPasskey() {
-    setPasskeyLoading(true);
-    try {
-      await registerWebAuthnCredential(
-        passkeyName || "Passkey",
-        passkeyUserVerification,
-      );
-      const { credentials } = await listWebAuthnCredentials();
-      setPasskeys(credentials ?? []);
-      setPasskeyName("");
-      toast.success(t("newUi.sidebar.userProfile.passkeyAdded"));
-    } catch (e: unknown) {
-      toast.error(
-        apiErrorMessage(e, t("newUi.sidebar.userProfile.passkeyAddFailed")),
-      );
-    } finally {
-      setPasskeyLoading(false);
-    }
-  }
-
-  async function handleDeletePasskey(credentialId: string) {
-    setPasskeyLoading(true);
-    try {
-      await deleteWebAuthnCredential(credentialId);
-      setPasskeys((prev) => prev.filter((item) => item.id !== credentialId));
-      toast.success(t("newUi.sidebar.userProfile.passkeyDeleted"));
-    } catch (e: unknown) {
-      toast.error(
-        apiErrorMessage(e, t("newUi.sidebar.userProfile.passkeyDeleteFailed")),
-      );
-    } finally {
-      setPasskeyLoading(false);
-    }
-  }
-
-  function downloadBackupCodes() {
-    const blob = new Blob([totpBackupCodes.join("\n")], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "termix-backup-codes.txt";
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   async function handleDeleteAccount() {
@@ -1461,8 +1237,7 @@ export function UserProfilePanel({
           const total =
             (s.sshHostsImported || 0) +
             (s.sshCredentialsImported || 0) +
-            (s.fileManagerItemsImported || 0) +
-            (s.dismissedAlertsImported || 0) +
+            (s.pluginItemsImported || 0) +
             (s.settingsImported || 0);
           toast.success(
             t("newUi.sidebar.userProfile.importCompleted", {
@@ -1533,7 +1308,7 @@ export function UserProfilePanel({
       {/* Storage mode toggle — only meaningful once a remote server is
           connected; with no sync there's nowhere for "cloud" to sync to,
           so this stays forced to local storage and hidden. */}
-      {(!isElectron() || isRemoteSyncConnected === true) && (
+      {(!isElectron() || isLinked) && (
         <div className="border border-border bg-card px-3 py-2.5 flex flex-col gap-2">
           <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             {t("newUi.sidebar.userProfile.storageModeSwitch")}
@@ -1582,17 +1357,35 @@ export function UserProfilePanel({
         onToggle={() => toggle("account")}
       >
         <div className="flex flex-col gap-0 pt-2">
-          {isElectron() ? (
+          {isElectron() && (
             <div className="border border-accent-brand/40 bg-accent-brand/10 px-3 py-2.5 mb-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-accent-brand">
                 <ShieldCheck className="size-3.5" />
-                {t("newUi.sidebar.userProfile.desktopProfileTitle")}
+                {isLinked
+                  ? t("newUi.sidebar.userProfile.linkedProfileTitle", {
+                      server:
+                        linkedAccount?.serverName || linkedAccount?.serverUrl,
+                    })
+                  : t("newUi.sidebar.userProfile.desktopProfileTitle")}
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed mt-1">
-                {t("newUi.sidebar.userProfile.desktopProfileDescription")}
+                {isLinked
+                  ? t("newUi.sidebar.userProfile.linkedProfileDescription")
+                  : t("newUi.sidebar.userProfile.desktopProfileDescription")}
               </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 h-7 text-[10px] rounded-none"
+                onClick={() => shell.openRailView("sync")}
+              >
+                {isLinked
+                  ? t("newUi.sidebar.userProfile.manageSync")
+                  : t("newUi.sidebar.userProfile.setUpSync")}
+              </Button>
             </div>
-          ) : (
+          )}
+          {(!isElectron() || isLinked) && (
             <div className="grid grid-cols-2 gap-x-4 gap-y-0">
               <div className="flex flex-col py-2">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
@@ -1620,33 +1413,37 @@ export function UserProfilePanel({
                   ))}
                 </div>
               </div>
-              <div className="flex flex-col py-2">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
-                  {t("newUi.sidebar.userProfile.authMethodLabel")}
-                </span>
-                <span className="text-sm font-semibold mt-0.5">
-                  {authMethod || "—"}
-                </span>
-              </div>
-              <div className="flex flex-col py-2">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
-                  {t("newUi.sidebar.userProfile.twoFaLabel")}
-                </span>
-                <span className="flex items-center gap-1 mt-0.5">
-                  {accountTotpEnabled ? (
-                    <>
-                      <ShieldCheck className="size-3.5 text-accent-brand" />
-                      <span className="text-sm font-semibold text-accent-brand">
-                        {t("newUi.sidebar.userProfile.twoFaOn")}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-sm font-semibold text-muted-foreground">
-                      {t("newUi.sidebar.userProfile.twoFaOff")}
+              {!isElectron() && (
+                <>
+                  <div className="flex flex-col py-2">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
+                      {t("newUi.sidebar.userProfile.authMethodLabel")}
                     </span>
-                  )}
-                </span>
-              </div>
+                    <span className="text-sm font-semibold mt-0.5">
+                      {authMethod || "—"}
+                    </span>
+                  </div>
+                  <div className="flex flex-col py-2">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
+                      {t("newUi.sidebar.userProfile.twoFaLabel")}
+                    </span>
+                    <span className="flex items-center gap-1 mt-0.5">
+                      {accountTotpEnabled ? (
+                        <>
+                          <ShieldCheck className="size-3.5 text-accent-brand" />
+                          <span className="text-sm font-semibold text-accent-brand">
+                            {t("newUi.sidebar.userProfile.twoFaOn")}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-sm font-semibold text-muted-foreground">
+                          {t("newUi.sidebar.userProfile.twoFaOff")}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1711,16 +1508,6 @@ export function UserProfilePanel({
               </a>
             </div>
           </div>
-
-          {isElectron() && (
-            <div className="border-t border-border pt-3 mt-3">
-              <RemoteSyncPanel
-                initialServerUrl={remoteSyncInitialServerUrl}
-                reconnectRequested={remoteSyncReconnectRequested}
-                onReconnectRequestHandled={onRemoteSyncReconnectHandled}
-              />
-            </div>
-          )}
 
           {!isElectron() && (
             <div className="border-t border-border pt-3 mt-3">
@@ -2064,34 +1851,6 @@ export function UserProfilePanel({
                 }}
               />
             </SettingRow>
-            {aiGloballyEnabled && (
-              <>
-                <SettingRow
-                  label={t("ai.enableTitle")}
-                  description={t("ai.enableDescription")}
-                >
-                  <FakeSwitch
-                    checked={aiAssistantEnabled}
-                    onChange={applyAiEnabled}
-                  />
-                </SettingRow>
-                {aiAssistantEnabled && (
-                  <SettingRow
-                    label={t("ai.readOnlyCommands")}
-                    description={t("ai.readOnlyCommandsDescription")}
-                  >
-                    <FakeSwitch
-                      checked={aiReadOnlyCommands}
-                      onChange={(v) => {
-                        setAiReadOnlyCommands(v);
-                        if (storageMode === "cloud")
-                          saveToCloud({ aiReadOnlyCommands: v });
-                      }}
-                    />
-                  </SettingRow>
-                )}
-              </>
-            )}
             <SettingRow
               label={t("newUi.sidebar.userProfile.reopenTabsOnLogin")}
               description={t("newUi.sidebar.userProfile.reopenTabsOnLoginDesc")}
@@ -2119,6 +1878,19 @@ export function UserProfilePanel({
                   localStorage.setItem("confirmTabClose", v.toString());
                   if (storageMode === "cloud")
                     saveToCloud({ confirmTabClose: v });
+                }}
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("newUi.sidebar.userProfile.showTabNumbers")}
+              description={t("newUi.sidebar.userProfile.showTabNumbersDesc")}
+            >
+              <FakeSwitch
+                checked={showTabNumbers}
+                onChange={(v) => {
+                  setShowTabNumbers(v);
+                  localStorage.setItem("showTabNumbers", v.toString());
+                  window.dispatchEvent(new Event("showTabNumbersChanged"));
                 }}
               />
             </SettingRow>
@@ -2180,35 +1952,17 @@ export function UserProfilePanel({
             <p className="text-[10px] text-muted-foreground mb-2">
               {t("newUi.sidebar.userProfile.navigationTabsDesc")}
             </p>
-            {visibleRailItems()
-              .filter((tab) => tab.id !== "ai" || aiGloballyEnabled)
-              .map((tab) => (
-                <div
-                  key={tab.id}
-                  className="flex items-center justify-between py-1.5"
-                >
-                  <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                    <span className="text-muted-foreground">
-                      <tab.icon size={12} />
-                    </span>
-                    {t(tab.labelKey)}
-                  </span>
-                  <FakeSwitch
-                    checked={!hiddenRailTabs.has(tab.id)}
-                    onChange={(visible) => {
-                      const next = new Set(hiddenRailTabs);
-                      if (visible) next.delete(tab.id);
-                      else next.add(tab.id);
-                      setHiddenRailTabs(next);
-                      const serialized = JSON.stringify([...next]);
-                      localStorage.setItem("hiddenRailTabs", serialized);
-                      window.dispatchEvent(new Event("hiddenRailTabsChanged"));
-                      if (storageMode === "cloud")
-                        saveToCloud({ hiddenRailTabs: serialized });
-                    }}
-                  />
-                </div>
-              ))}
+            <NavigationVisibilityToggles
+              hidden={hiddenRailTabs}
+              onChange={(next) => {
+                setHiddenRailTabs(next);
+                const serialized = JSON.stringify([...next]);
+                localStorage.setItem("hiddenRailTabs", serialized);
+                window.dispatchEvent(new Event("hiddenRailTabsChanged"));
+                if (storageMode === "cloud")
+                  saveToCloud({ hiddenRailTabs: serialized });
+              }}
+            />
           </div>
 
           <div className="flex flex-col gap-1 border-t border-border pt-3">
@@ -2237,7 +1991,7 @@ export function UserProfilePanel({
 
       {/* The embedded desktop backend auto-authenticates its machine-local
           profile, so server login controls would imply protection they do
-          not provide. Remote Sync owns its separate account UI above. */}
+          not provide. A linked account's sign-in is managed on its server. */}
       <AccordionSection
         hidden={isElectron()}
         id="security"
@@ -2247,393 +2001,7 @@ export function UserProfilePanel({
         onToggle={() => toggle("security")}
       >
         <div className="flex flex-col gap-4 pt-3">
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium">
-                    {t("newUi.sidebar.userProfile.totpAuthenticator")}
-                  </span>
-                  <a
-                    href="https://docs.termix.site/features/authentication/totp"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[10px] text-accent-brand hover:underline"
-                  >
-                    {t("hosts.docsLink")}
-                  </a>
-                </div>
-                <span className="text-[10px] text-muted-foreground">
-                  {totpEnabled
-                    ? t("newUi.sidebar.userProfile.totpEnabled")
-                    : t("newUi.sidebar.userProfile.totpDisabled")}
-                </span>
-              </div>
-              {totpEnabled ? (
-                <div className="ml-3 flex shrink-0 gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[10px] border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
-                    onClick={() => setShowAddTotp((open) => !open)}
-                    disabled={totpLoading || totpStep !== "idle"}
-                  >
-                    {t("newUi.sidebar.userProfile.totpAddAuthenticator")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[10px] border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => setShowDisableTotp((o) => !o)}
-                  >
-                    {t("newUi.sidebar.userProfile.disable")}
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 ml-3 text-[10px] h-7 border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
-                  onClick={handleStartTotpSetup}
-                  disabled={totpLoading || totpStep !== "idle"}
-                >
-                  {t("newUi.sidebar.userProfile.enable")}
-                </Button>
-              )}
-            </div>
-
-            {totpEnabled && showAddTotp && (
-              <div className="border border-border bg-muted/20 p-3 flex flex-col gap-3">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  {t("newUi.sidebar.userProfile.totpAddTitle")}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {t("newUi.sidebar.userProfile.totpAddDescription")}
-                </span>
-                <Input
-                  placeholder={t(
-                    "newUi.sidebar.userProfile.totpDisablePlaceholder",
-                  )}
-                  value={addTotpInput}
-                  onChange={(e) => setAddTotpInput(e.target.value)}
-                  onKeyDown={(e) =>
-                    e.key === "Enter" && handleAddTotpAuthenticator()
-                  }
-                  className="text-sm"
-                />
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="flex-1 text-xs"
-                    onClick={() => {
-                      setShowAddTotp(false);
-                      setAddTotpInput("");
-                    }}
-                  >
-                    {t("newUi.sidebar.userProfile.cancel")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
-                    onClick={handleAddTotpAuthenticator}
-                    disabled={totpLoading}
-                  >
-                    {t("common.continue")}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Disable TOTP form */}
-            {totpEnabled && showDisableTotp && (
-              <div className="border border-border bg-muted/20 p-3 flex flex-col gap-3">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  {t("newUi.sidebar.userProfile.totpDisableTitle")}
-                </span>
-                <Input
-                  placeholder={t(
-                    "newUi.sidebar.userProfile.totpDisablePlaceholder",
-                  )}
-                  value={disableTotpInput}
-                  onChange={(e) => setDisableTotpInput(e.target.value)}
-                  className="text-sm"
-                />
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="flex-1 text-xs"
-                    onClick={() => {
-                      setShowDisableTotp(false);
-                      setDisableTotpInput("");
-                    }}
-                  >
-                    {t("newUi.sidebar.userProfile.cancel")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={handleDisableTotp}
-                    disabled={totpLoading}
-                  >
-                    {t("newUi.sidebar.userProfile.totpDisableConfirm")}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* TOTP setup: scan QR */}
-            {totpStep === "setup" && (
-              <div className="border border-border bg-muted/20 p-3 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    {t("newUi.sidebar.userProfile.setupTotp")}
-                  </span>
-                  <button
-                    onClick={() => {
-                      setTotpStep("idle");
-                      setAddingTotpAuthenticator(false);
-                    }}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-                {totpQrCode ? (
-                  <div className="flex items-center justify-center p-3 bg-background border border-border">
-                    <img
-                      src={totpQrCode}
-                      alt={t("newUi.sidebar.userProfile.qrCode")}
-                      className="size-32"
-                    />
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center p-3 bg-background border border-border">
-                    <div className="size-24 bg-muted flex items-center justify-center text-[10px] text-muted-foreground">
-                      {t("newUi.sidebar.userProfile.qrCode")}
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 bg-muted/30 border border-border px-2 py-1.5">
-                  <span className="text-[10px] font-mono flex-1 tracking-widest select-all truncate">
-                    {totpSecret}
-                  </span>
-                  <button
-                    onClick={() => {
-                      copyToClipboard(totpSecret);
-                      toast.info(t("newUi.sidebar.userProfile.secretCopied"));
-                    }}
-                    className="text-muted-foreground hover:text-accent-brand shrink-0"
-                  >
-                    <Copy className="size-3.5" />
-                  </button>
-                </div>
-                <span className="text-[10px] text-muted-foreground text-center">
-                  {t(
-                    addingTotpAuthenticator
-                      ? "newUi.sidebar.userProfile.totpAddScanInstructions"
-                      : "newUi.sidebar.userProfile.totpInstructions",
-                  )}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
-                  onClick={() => {
-                    if (addingTotpAuthenticator) {
-                      setAddingTotpAuthenticator(false);
-                      setTotpStep("idle");
-                      toast.success(
-                        t("newUi.sidebar.userProfile.totpAddSuccess"),
-                      );
-                    } else {
-                      setTotpStep("verify");
-                    }
-                  }}
-                >
-                  {t(
-                    addingTotpAuthenticator
-                      ? "newUi.sidebar.userProfile.done"
-                      : "newUi.sidebar.userProfile.totpContinueVerify",
-                  )}
-                </Button>
-              </div>
-            )}
-
-            {/* TOTP setup: verify code */}
-            {!totpEnabled && totpStep === "verify" && (
-              <div className="border border-border bg-muted/20 p-3 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    {t("newUi.sidebar.userProfile.totpVerifyTitle")}
-                  </span>
-                  <button
-                    onClick={() => setTotpStep("setup")}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-                <Input
-                  placeholder={t(
-                    "newUi.sidebar.userProfile.totpCodePlaceholder",
-                  )}
-                  value={totpCode}
-                  onChange={(e) =>
-                    setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                  }
-                  onKeyDown={(e) => e.key === "Enter" && handleVerifyTotp()}
-                  className="text-center font-mono tracking-widest text-lg h-10"
-                  maxLength={6}
-                />
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="flex-1 text-xs"
-                    onClick={() => setTotpStep("setup")}
-                  >
-                    {t("newUi.sidebar.userProfile.cancel")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
-                    onClick={handleVerifyTotp}
-                    disabled={totpLoading || totpCode.length !== 6}
-                  >
-                    <CheckCircle2 className="size-3.5" />
-                    {t("newUi.sidebar.userProfile.verify")}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* TOTP setup: backup codes */}
-            {totpStep === "backup" && totpBackupCodes.length > 0 && (
-              <div className="border border-border bg-muted/20 p-3 flex flex-col gap-3">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  {t("newUi.sidebar.userProfile.totpBackupTitle")}
-                </span>
-                <div className="grid grid-cols-2 gap-1">
-                  {totpBackupCodes.map((code) => (
-                    <span
-                      key={code}
-                      className="text-[10px] font-mono bg-muted border border-border px-2 py-1 text-center"
-                    >
-                      {code}
-                    </span>
-                  ))}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
-                  onClick={downloadBackupCodes}
-                >
-                  {t("newUi.sidebar.userProfile.totpDownloadBackup")}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs"
-                  onClick={() => setTotpStep("idle")}
-                >
-                  {t("newUi.sidebar.userProfile.done")}
-                </Button>
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-3 border-t border-border pt-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-xs font-medium">
-                  {t("newUi.sidebar.userProfile.passkeys")}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {t("newUi.sidebar.userProfile.passkeysDesc")}
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-[1fr_auto] gap-2">
-              <Input
-                placeholder={t("newUi.sidebar.userProfile.passkeyName")}
-                value={passkeyName}
-                onChange={(e) => setPasskeyName(e.target.value)}
-                className="h-8 text-xs"
-                disabled={passkeyLoading}
-              />
-              <Select2
-                value={passkeyUserVerification}
-                onChange={(e) =>
-                  setPasskeyUserVerification(
-                    e.target.value as WebAuthnUserVerification,
-                  )
-                }
-                className="h-8 w-28 text-xs border border-border bg-background px-2 outline-none focus:ring-1 focus:ring-ring"
-                disabled={passkeyLoading}
-              >
-                <option value="preferred">
-                  {t("newUi.sidebar.userProfile.passkeyUvPreferred")}
-                </option>
-                <option value="required">
-                  {t("newUi.sidebar.userProfile.passkeyUvRequired")}
-                </option>
-                <option value="discouraged">
-                  {t("newUi.sidebar.userProfile.passkeyUvDiscouraged")}
-                </option>
-              </Select2>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-[10px] border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
-              onClick={handleRegisterPasskey}
-              disabled={passkeyLoading}
-            >
-              <KeyRound className="size-3" />
-              {t("newUi.sidebar.userProfile.addPasskey")}
-            </Button>
-
-            <div className="flex flex-col divide-y divide-border border border-border">
-              {passkeys.length === 0 ? (
-                <div className="py-4 text-center text-[10px] text-muted-foreground">
-                  {t("newUi.sidebar.userProfile.noPasskeys")}
-                </div>
-              ) : (
-                passkeys.map((passkey) => (
-                  <div
-                    key={passkey.id}
-                    className="flex items-center justify-between gap-2 px-2 py-2"
-                  >
-                    <div className="min-w-0 flex flex-col">
-                      <span className="text-xs font-medium truncate">
-                        {passkey.name}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground truncate">
-                        {passkey.deviceType || "unknown"}
-                        {passkey.backedUp ? " / synced" : ""}
-                      </span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 text-muted-foreground hover:text-destructive"
-                      onClick={() => handleDeletePasskey(passkey.id)}
-                      disabled={passkeyLoading}
-                    >
-                      <Trash2 className="size-3" />
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          <AuthEnrollmentSections />
 
           {canChangePasword && (
             <PasswordChangeSection
@@ -2825,17 +2193,15 @@ export function UserProfilePanel({
         </div>
       </AccordionSection>
 
-      {isElectron() && (
-        <AccordionSection
-          id="c2s-tunnels"
-          label={t("newUi.sidebar.userProfile.sectionC2sTunnels")}
-          icon={<Activity className="size-3.5" />}
-          open={openSections.has("c2s-tunnels")}
-          onToggle={() => toggle("c2s-tunnels")}
-        >
-          <C2STunnelPresetManager />
-        </AccordionSection>
-      )}
+      {featureSettings.map((plugin) => (
+        <FeatureSettingsSection
+          key={plugin.id}
+          plugin={plugin}
+          scope="user"
+          open={openSections.has(featureSectionId(plugin.id))}
+          onToggle={() => toggle(featureSectionId(plugin.id))}
+        />
+      ))}
 
       {/* Delete account dialog */}
       <Dialog

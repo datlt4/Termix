@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Host } from "@/types/ui-types";
+import { registerHostAction } from "@/sidebar/host-contributions";
 import { LOCAL_ADAPTIVE_PREFERENCES_KEY } from "@/lib/local-adaptive-preferences";
 
 const { markTabSurfaceUsedMock, preloadTabSurfaceMock } = vi.hoisted(() => ({
@@ -35,7 +36,6 @@ vi.mock("@/hooks/use-status-color-scheme", () => ({
 
 vi.mock("@/main-axios", () => ({
   getHostPassword: vi.fn(),
-  wakeOnLan: vi.fn(),
 }));
 
 import { HostItem } from "../../../../sidebar/tree/HostItem/HostItem";
@@ -60,11 +60,9 @@ const baseHost: Host = {
   enableCommandHistory: true,
   enableTunnel: true,
   enableFileManager: true,
-  enableDocker: true,
   enableRdp: true,
   enableVnc: true,
   enableTelnet: true,
-  macAddress: "aa:bb:cc:dd:ee:ff",
   quickActions: [],
 } as unknown as Host;
 
@@ -140,7 +138,6 @@ describe("HostItem density parity", () => {
       0,
     );
     expect(screen.getAllByText("hosts.shareHost").length).toBeGreaterThan(0);
-    expect(screen.getByText("hosts.wakeOnLanAction")).toBeTruthy();
   });
 
   it.each(["comfortable", "compact"] as const)(
@@ -154,20 +151,26 @@ describe("HostItem density parity", () => {
   );
 
   it.each(["comfortable", "compact"] as const)(
-    "exposes RDP, VNC, and Telnet quick-launch buttons in %s density",
+    "exposes plugin connect actions as quick-launch buttons in %s density",
     (density) => {
-      renderHostItem(density);
-      expect(screen.getByTitle("hosts.connectRdp")).toBeTruthy();
-      expect(screen.getByTitle("hosts.connectVnc")).toBeTruthy();
-      expect(screen.getByTitle("hosts.connectTelnet")).toBeTruthy();
-    },
-  );
-
-  it.each(["comfortable", "compact"] as const)(
-    "exposes the wake-on-LAN button when a MAC address is set, in %s density",
-    (density) => {
-      renderHostItem(density);
-      expect(screen.getByTitle("hosts.wakeOnLanAction")).toBeTruthy();
+      const Icon = (() => null) as never;
+      const disposers = ["desk", "screen"].map((id) =>
+        registerHostAction({
+          id,
+          titleKey: `fixture.${id}`,
+          icon: Icon,
+          kind: "connect",
+          tabType: id,
+          when: () => true,
+        }),
+      );
+      try {
+        renderHostItem(density);
+        expect(screen.getByTitle("fixture.desk")).toBeTruthy();
+        expect(screen.getByTitle("fixture.screen")).toBeTruthy();
+      } finally {
+        disposers.forEach((dispose) => dispose());
+      }
     },
   );
 
@@ -203,17 +206,31 @@ describe("HostItem density parity", () => {
   });
 
   it("learns repeated local actions and preloads the preferred host tool", () => {
-    renderHostItem("comfortable");
-    const filesButton = screen.getByTitle("Files");
-    fireEvent.click(filesButton);
-    fireEvent.click(filesButton);
-    fireEvent.click(filesButton);
+    const Icon = (() => null) as never;
+    const dispose = registerHostAction({
+      id: "tmux_monitor",
+      titleKey: "Tmux Monitor",
+      icon: Icon,
+      kind: "open",
+      tabType: "tmux_monitor",
+      when: () => true,
+    });
+    try {
+      renderHostItem("comfortable");
+      const tmuxButton = screen.getByTitle("Tmux Monitor");
+      fireEvent.click(tmuxButton);
+      fireEvent.click(tmuxButton);
+      fireEvent.click(tmuxButton);
 
-    const hostRow = screen.getByText("web-01").closest(".cursor-pointer");
-    expect(hostRow).toBeTruthy();
-    fireEvent.pointerEnter(hostRow!);
+      const hostRow = screen.getByText("web-01").closest(".cursor-pointer");
+      expect(hostRow).toBeTruthy();
+      fireEvent.pointerEnter(hostRow!);
 
-    expect(preloadTabSurfaceMock).toHaveBeenCalledWith("terminal");
-    expect(preloadTabSurfaceMock).toHaveBeenCalledWith("files");
+      // No plugin registered a connect action, so only the learned tool preloads.
+      expect(preloadTabSurfaceMock).not.toHaveBeenCalledWith("");
+      expect(preloadTabSurfaceMock).toHaveBeenCalledWith("tmux_monitor");
+    } finally {
+      dispose();
+    }
   });
 });

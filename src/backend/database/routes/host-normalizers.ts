@@ -1,5 +1,4 @@
 import type { AuthOverrideProtocol } from "../../../types/auth-protocols.js";
-import { parseWebUiConfig } from "./host-web-endpoints.js";
 
 export function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
@@ -24,12 +23,7 @@ export function applyHostKeyTypeUpdate(
   }
 }
 
-const PROTOCOL_ENABLE_FIELDS = [
-  "enableSsh",
-  "enableRdp",
-  "enableVnc",
-  "enableTelnet",
-] as const;
+const PROTOCOL_ENABLE_FIELDS = ["enableSsh"] as const;
 
 export function normalizeProtocolEnableFields(
   values: Record<string, unknown>,
@@ -48,7 +42,6 @@ export const OWNER_PRIVATE_AUTH_FIELDS = {
     "authType",
     "authMethod",
     "credentialId",
-    "vaultProfileId",
     "overrideCredentialUsername",
     "shareSshAuth",
     "password",
@@ -87,7 +80,7 @@ export function containsOwnerPrivateAuthUpdate(
   );
 }
 
-export const FOLDER_PATH_SEPARATOR = " / ";
+const FOLDER_PATH_SEPARATOR = " / ";
 
 /**
  * Re-paths a folder string when its ancestor folder is renamed. Returns the new
@@ -177,32 +170,11 @@ export type NormalizedImportedHost = Record<string, unknown> & {
   credentialId?: number;
   credentialAlias?: string;
   pin?: unknown;
-  enableTerminal?: unknown;
-  enableTunnel?: unknown;
-  enableFileManager?: unknown;
-  enableDocker?: unknown;
-  enableWebUi?: unknown;
-  enableProxmox?: unknown;
-  enableTmuxMonitor?: unknown;
-  enableTerminalToolbar?: unknown;
-  enableAiAssistant?: unknown;
-  enableCommandHistory?: unknown;
-  showTerminalInSidebar?: unknown;
-  showFileManagerInSidebar?: unknown;
-  showTunnelInSidebar?: unknown;
-  showDockerInSidebar?: unknown;
-  showServerStatsInSidebar?: unknown;
-  defaultPath?: unknown;
   sudoPassword?: unknown;
-  tunnelConnections?: unknown;
   jumpHosts?: unknown;
   quickActions?: unknown;
-  statsConfig?: unknown;
-  dockerConfig?: unknown;
-  webUiConfig?: unknown;
-  proxmoxConfig?: unknown;
-  enableProxmoxStats?: unknown;
-  proxmoxStatsConfig?: unknown;
+  statusCheckEnabled?: unknown;
+  statusCheckInterval?: unknown;
   terminalConfig?: unknown;
   forceKeyboardInteractive?: unknown;
   notes?: unknown;
@@ -215,13 +187,7 @@ export type NormalizedImportedHost = Record<string, unknown> & {
   portKnockSequence?: unknown;
   overrideCredentialUsername?: unknown;
   domain?: unknown;
-  security?: unknown;
-  ignoreCert?: unknown;
-  guacamoleConfig?: unknown;
   enableSsh: boolean;
-  enableRdp: boolean;
-  enableVnc: boolean;
-  enableTelnet: boolean;
 };
 
 export function normalizeImportedHost(
@@ -276,18 +242,6 @@ export function normalizeImportedHost(
       hostData.enableSsh === undefined
         ? connectionType === "ssh"
         : asBoolean(hostData.enableSsh),
-    enableRdp:
-      hostData.enableRdp === undefined
-        ? connectionType === "rdp"
-        : asBoolean(hostData.enableRdp),
-    enableVnc:
-      hostData.enableVnc === undefined
-        ? connectionType === "vnc"
-        : asBoolean(hostData.enableVnc),
-    enableTelnet:
-      hostData.enableTelnet === undefined
-        ? connectionType === "telnet"
-        : asBoolean(hostData.enableTelnet),
   };
 }
 
@@ -360,34 +314,11 @@ const CONNECT_LEVEL_FIELDS = new Set([
   "shareSshAuth",
   "authOverrides",
   "connectionType",
-  "enableTerminal",
-  "enableTunnel",
-  "enableFileManager",
-  "enableDocker",
-  "enableWebUi",
-  "webUiConfig",
-  "enableProxmox",
-  "enableProxmoxStats",
-  "enableTmuxMonitor",
-  "enableTerminalToolbar",
-  "enableAiAssistant",
-  "showTerminalInSidebar",
-  "showFileManagerInSidebar",
-  "showTunnelInSidebar",
-  "showDockerInSidebar",
-  "showServerStatsInSidebar",
+  "statusCheckEnabled",
+  "statusCheckInterval",
   "enableSsh",
-  "enableRdp",
-  "enableVnc",
-  "enableTelnet",
   "sshPort",
-  "rdpPort",
   "rdpAuthType",
-  "vncPort",
-  "telnetPort",
-  "defaultPath",
-  "scpLegacy",
-  "tunnelConnections",
   "jumpHosts",
   "createdAt",
   "updatedAt",
@@ -452,11 +383,35 @@ export function sanitizeHostForRecipient(
   return reduced;
 }
 
+/** Who shared a host that a linked desktop holds a read-only copy of. */
+export function parseSharedSource(
+  value: unknown,
+): { owner?: string; permissionLevel?: string } | null {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export function transformHostResponse(
   host: Record<string, unknown>,
 ): Record<string, unknown> {
+  const shared = parseSharedSource(host.sharedSource);
   return {
     ...host,
+    sharedSource: undefined,
+    localOnly: !!host.localOnly,
+    sharedCopy: !!shared,
+    ...(shared
+      ? {
+          isShared: true,
+          ownerUsername: shared.owner || undefined,
+          permissionLevel: shared.permissionLevel || "connect",
+        }
+      : {}),
     tags:
       typeof host.tags === "string"
         ? host.tags
@@ -465,75 +420,26 @@ export function transformHostResponse(
         : [],
     pin: !!host.pin,
     shareSshAuth: !!host.shareSshAuth,
-    enableTerminal: !!host.enableTerminal,
-    enableTunnel: !!host.enableTunnel,
-    enableFileManager: host.enableFileManager !== false,
-    enableDocker: !!host.enableDocker,
-    enableWebUi: !!host.enableWebUi,
-    enableProxmox: !!host.enableProxmox,
-    enableProxmoxStats: !!host.enableProxmoxStats,
-    enableTmuxMonitor: !!host.enableTmuxMonitor,
-    enableTerminalToolbar: host.enableTerminalToolbar !== false,
-    enableAiAssistant: !!host.enableAiAssistant,
-    showTerminalInSidebar: !!host.showTerminalInSidebar,
-    showFileManagerInSidebar: !!host.showFileManagerInSidebar,
-    showTunnelInSidebar: !!host.showTunnelInSidebar,
-    showDockerInSidebar: !!host.showDockerInSidebar,
-    showServerStatsInSidebar: !!host.showServerStatsInSidebar,
-    // Old hosts only had connection_type set; the per-protocol enable flags didn't exist yet.
-    // The schema defaults (enableSsh=true, others=false) wrongly mark every old host as SSH.
-    // Detect this migration case: if no non-SSH protocol is explicitly enabled AND
-    // connectionType is set to a non-SSH value, fall back to inferring from connectionType.
-    ...(() => {
-      const ct = host.connectionType;
-      const rdp = !!host.enableRdp;
-      const vnc = !!host.enableVnc;
-      const tel = !!host.enableTelnet;
-      const isMigratedNonSsh = !rdp && !vnc && !tel && ct && ct !== "ssh";
-      return {
-        enableSsh: isMigratedNonSsh ? false : !!host.enableSsh,
-        enableRdp: isMigratedNonSsh ? ct === "rdp" : rdp,
-        enableVnc: isMigratedNonSsh ? ct === "vnc" : vnc,
-        enableTelnet: isMigratedNonSsh ? ct === "telnet" : tel,
-      };
-    })(),
+    enableSsh: !!host.enableSsh,
     sshPort: host.sshPort ?? host.port ?? 22,
-    rdpPort: host.rdpPort ?? 3389,
-    vncPort: host.vncPort ?? 5900,
-    telnetPort: host.telnetPort ?? 23,
     rdpUser: host.rdpUser || undefined,
     rdpDomain: host.rdpDomain || undefined,
-    rdpSecurity: host.rdpSecurity || undefined,
-    rdpIgnoreCert: !!host.rdpIgnoreCert,
     vncUser: host.vncUser || undefined,
     telnetUser: host.telnetUser || undefined,
-    tunnelConnections: host.tunnelConnections
-      ? JSON.parse(host.tunnelConnections as string)
-      : [],
     jumpHosts: host.jumpHosts ? JSON.parse(host.jumpHosts as string) : [],
     quickActions: host.quickActions
       ? JSON.parse(host.quickActions as string)
       : [],
-    statsConfig: host.statsConfig
-      ? JSON.parse(host.statsConfig as string)
-      : undefined,
+    statusCheckEnabled:
+      host.statusCheckEnabled !== false && host.statusCheckEnabled !== 0,
+    statusCheckInterval:
+      typeof host.statusCheckInterval === "number"
+        ? host.statusCheckInterval
+        : null,
     terminalConfig: host.terminalConfig
       ? JSON.parse(host.terminalConfig as string)
       : undefined,
-    dockerConfig: host.dockerConfig
-      ? JSON.parse(host.dockerConfig as string)
-      : undefined,
-    // Guarded, unlike dockerConfig directly above: parseWebUiConfig never
-    // throws, so a half-written config cannot take out the whole host listing.
-    webUiConfig: parseWebUiConfig(host.webUiConfig),
-    proxmoxConfig: host.proxmoxConfig
-      ? JSON.parse(host.proxmoxConfig as string)
-      : undefined,
-    proxmoxStatsConfig: host.proxmoxStatsConfig
-      ? JSON.parse(host.proxmoxStatsConfig as string)
-      : undefined,
     forceKeyboardInteractive: host.forceKeyboardInteractive === "true",
-    useWarpgate: !!host.useWarpgate,
     socks5ProxyChain: host.socks5ProxyChain
       ? JSON.parse(host.socks5ProxyChain as string)
       : [],
@@ -541,10 +447,5 @@ export function transformHostResponse(
       ? JSON.parse(host.portKnockSequence as string)
       : [],
     domain: host.domain || undefined,
-    security: host.security || undefined,
-    ignoreCert: !!host.ignoreCert,
-    guacamoleConfig: host.guacamoleConfig
-      ? JSON.parse(host.guacamoleConfig as string)
-      : undefined,
   };
 }

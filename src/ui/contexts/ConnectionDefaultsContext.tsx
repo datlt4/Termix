@@ -10,30 +10,21 @@ import {
 } from "react";
 import { getUserPreferences, saveUserPreferences } from "@/api/open-tabs-api";
 import {
-  parseRemoteDesktopDefaults,
   parseTerminalDefaults,
-  type RemoteDesktopDefaults,
   type TerminalDefaults,
 } from "@/lib/connection-defaults";
-
-type DefaultsKind = "terminal" | "rdp";
 
 interface ConnectionDefaultsContextValue {
   ready: boolean;
   terminal: TerminalDefaults;
-  rdp: RemoteDesktopDefaults;
-  saveDefaults: (
-    kind: DefaultsKind,
-    value: TerminalDefaults | RemoteDesktopDefaults,
-  ) => Promise<void>;
+  saveTerminalDefaults: (value: TerminalDefaults) => Promise<void>;
 }
 
 const ConnectionDefaultsContext = createContext<ConnectionDefaultsContextValue>(
   {
     ready: true,
     terminal: {},
-    rdp: {},
-    saveDefaults: async () => {},
+    saveTerminalDefaults: async () => {},
   },
 );
 
@@ -44,7 +35,6 @@ export function ConnectionDefaultsProvider({
 }) {
   const [ready, setReady] = useState(false);
   const [terminal, setTerminal] = useState<TerminalDefaults>({});
-  const [rdp, setRdp] = useState<RemoteDesktopDefaults>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +42,6 @@ export function ConnectionDefaultsProvider({
       .then((preferences) => {
         if (cancelled) return;
         setTerminal(parseTerminalDefaults(preferences.terminalDefaults));
-        setRdp(parseRemoteDesktopDefaults(preferences.rdpDefaults));
       })
       .catch(() => {})
       .finally(() => {
@@ -63,22 +52,14 @@ export function ConnectionDefaultsProvider({
     };
   }, []);
 
-  const saveDefaults = useCallback(
-    async (
-      kind: DefaultsKind,
-      value: TerminalDefaults | RemoteDesktopDefaults,
-    ) => {
-      const serialized = JSON.stringify(value);
-      await saveUserPreferences({ [`${kind}Defaults`]: serialized });
-      if (kind === "terminal") setTerminal(value as TerminalDefaults);
-      if (kind === "rdp") setRdp(value as RemoteDesktopDefaults);
-    },
-    [],
-  );
+  const saveTerminalDefaults = useCallback(async (value: TerminalDefaults) => {
+    await saveUserPreferences({ terminalDefaults: JSON.stringify(value) });
+    setTerminal(value);
+  }, []);
 
   const value = useMemo(
-    () => ({ ready, terminal, rdp, saveDefaults }),
-    [ready, terminal, rdp, saveDefaults],
+    () => ({ ready, terminal, saveTerminalDefaults }),
+    [ready, terminal, saveTerminalDefaults],
   );
   return (
     <ConnectionDefaultsContext.Provider value={value}>

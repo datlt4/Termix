@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import { createServer } from "http";
+import type { AddressInfo } from "net";
 import type { LookupAddress, LookupOptions } from "dns";
 import {
   createDnsLookupHook,
   isBlockedAddress,
   readResponseTextLimited,
+  safeOutboundFetch,
 } from "../../utils/safe-outbound-fetch.js";
 
 describe("isBlockedAddress", () => {
@@ -256,4 +259,60 @@ describe("createDnsLookupHook", () => {
       expect.any(Function),
     );
   });
+});
+
+describe("safeOutboundFetch", () => {
+  it("returns a large body the caller reads after the call", async () => {
+    const body = "x".repeat(1_000_000);
+    const server = createServer((_req, res) => res.end(body));
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const { port } = server.address() as AddressInfo;
+    try {
+      const response = await safeOutboundFetch(
+        `http://127.0.0.1:${port}/`,
+        {},
+        ["127.0.0.1"],
+      );
+      expect((await response.text()).length).toBe(body.length);
+    } finally {
+      server.close();
+    }
+  }, 10_000);
+});
+
+describe("redirect handling", () => {
+  it.each([undefined, "error", "follow", "manual"] as const)(
+    "never follows redirects with mode %s",
+    async (redirect) => {
+      const paths: string[] = [];
+      const server = createServer((req, res) => {
+        paths.push(req.url!);
+        res.writeHead(302, { Location: "/private-target" });
+        res.end();
+      });
+      await new Promise<void>((resolve) =>
+        server.listen(0, "127.0.0.1", resolve),
+      );
+      const { port } = server.address() as AddressInfo;
+      try {
+        const response = safeOutboundFetch(
+          `http://127.0.0.1:${port}/`,
+          { redirect },
+          ["127.0.0.1"],
+        );
+        if (redirect === "manual") {
+          const result = await response;
+          expect(result.status).toBe(302);
+          await result.body?.cancel();
+        } else {
+          await expect(response).rejects.toThrow();
+        }
+        expect(paths).toEqual(["/"]);
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+  );
 });

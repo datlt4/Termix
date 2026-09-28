@@ -6,23 +6,15 @@ import { Input } from "@/components/input";
 import { PasswordInput } from "@/components/password-input";
 import { FakeSwitch, SectionCard, SettingRow } from "@/components/section-card";
 import type { Host } from "@/types/ui-types";
-import {
-  Globe,
-  LayoutGrid,
-  Monitor,
-  MousePointerClick,
-  Plus,
-  Tag,
-  Terminal,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Activity, Globe, Plus, Tag, Terminal, Trash2, X } from "lucide-react";
 import { FolderPathPicker } from "./FolderPathPicker";
 import { HostParentPicker } from "./HostParentPicker";
 import { getSSHFolders, isElectron } from "@/main-axios";
 import { connectionOriginAppliesTo } from "./HostEditorData";
+import { useSyncStatus } from "@/hooks/use-sync-status";
 import type { HostEditorForm, HostProtocols } from "./HostEditorData";
 import { Select2 } from "@/components/select2";
+import { useHostProtocols } from "./host-protocols";
 
 type HostEditorSetField = <K extends keyof HostEditorForm>(
   key: K,
@@ -48,6 +40,8 @@ export function HostEditorGeneralTab({
   simpleMode?: boolean;
 }) {
   const { t } = useTranslation();
+  const syncLinked = !!useSyncStatus()?.linked;
+  const pluginProtocols = useHostProtocols();
 
   // Tracks which picker is shown, independent of whether a value is set yet
   // -- switching to "parent host" mode with nothing picked shouldn't bounce
@@ -116,35 +110,22 @@ export function HostEditorGeneralTab({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 py-3">
           {[
             {
-              proto: "enableSsh" as const,
+              proto: "enableSsh",
               label: t("hosts.tabSsh"),
               desc: t("hosts.secureShell"),
               icon: <Terminal className="size-4" />,
-              portField: "sshPort" as const,
             },
-            {
-              proto: "enableRdp" as const,
-              label: t("hosts.tabRdp"),
-              desc: t("hosts.remoteDesktop"),
-              icon: <Monitor className="size-4" />,
-              portField: "rdpPort" as const,
-            },
-            {
-              proto: "enableVnc" as const,
-              label: t("hosts.tabVnc"),
-              desc: t("hosts.virtualNetwork"),
-              icon: <MousePointerClick className="size-4" />,
-              portField: "vncPort" as const,
-            },
-            {
-              proto: "enableTelnet" as const,
-              label: t("hosts.tabTelnet"),
-              desc: t("hosts.unencryptedShell"),
-              icon: <Terminal className="size-4" />,
-              portField: "telnetPort" as const,
-            },
+            ...pluginProtocols.map((protocol) => {
+              const Icon = protocol.icon;
+              return {
+                proto: protocol.settingKey,
+                label: t(protocol.titleKey),
+                desc: protocol.descriptionKey ? t(protocol.descriptionKey) : "",
+                icon: <Icon className="size-4" />,
+              };
+            }),
           ].map(({ proto, label, desc, icon }) => {
-            const enabled = protocols[proto];
+            const enabled = !!protocols[proto];
             return (
               <div
                 key={proto}
@@ -202,58 +183,16 @@ export function HostEditorGeneralTab({
                 onChange={(e) => setField("name", e.target.value)}
               />
             </div>
-            {protocols.enableSsh && !simpleMode && (
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                    {t("hosts.macAddress")}
-                  </label>
-                  <a
-                    href="https://docs.termix.site/features/networking/wake-on-lan"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[10px] text-accent-brand hover:underline"
-                  >
-                    {t("hosts.docsLink")}
-                  </a>
-                </div>
-                <Input
-                  placeholder="AA:BB:CC:DD:EE:FF"
-                  value={form.macAddress}
-                  onChange={(e) => setField("macAddress", e.target.value)}
-                />
-              </div>
-            )}
-            {protocols.enableSsh && !simpleMode && form.macAddress && (
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  {t("hosts.wolBroadcastAddress")}
-                </label>
-                <Input
-                  placeholder="192.168.1.255"
-                  value={form.wolBroadcastAddress}
-                  onChange={(e) =>
-                    setField("wolBroadcastAddress", e.target.value)
-                  }
-                />
-                <p className="text-[10px] text-muted-foreground/60">
-                  {t("hosts.wolBroadcastAddressDesc")}
-                </p>
-              </div>
-            )}
           </div>
         </div>
       </SectionCard>
 
-      {!protocols.enableSsh &&
-        !protocols.enableRdp &&
-        !protocols.enableVnc &&
-        !protocols.enableTelnet && (
-          <div className="flex items-center gap-3 p-3 border border-border bg-muted/20 text-xs text-muted-foreground">
-            <Globe className="size-4 shrink-0 text-muted-foreground/40" />
-            <span>{t("hosts.enableAtLeastOneProtocol")}</span>
-          </div>
-        )}
+      {!Object.values(protocols).some(Boolean) && (
+        <div className="flex items-center gap-3 p-3 border border-border bg-muted/20 text-xs text-muted-foreground">
+          <Globe className="size-4 shrink-0 text-muted-foreground/40" />
+          <span>{t("hosts.enableAtLeastOneProtocol")}</span>
+        </div>
+      )}
 
       <SectionCard
         title={t("hosts.folderAndAdvanced")}
@@ -374,6 +313,17 @@ export function HostEditorGeneralTab({
               onChange={(v) => setField("pin", v)}
             />
           </SettingRow>
+          {syncLinked && (
+            <SettingRow
+              label={t("hosts.localOnly")}
+              description={t("hosts.localOnlyDesc")}
+            >
+              <FakeSwitch
+                checked={form.localOnly}
+                onChange={(v) => setField("localOnly", v)}
+              />
+            </SettingRow>
+          )}
         </div>
         <div className="flex flex-col gap-3 border-t border-border pt-4 pb-0">
           <div className="flex items-center justify-between">
@@ -769,13 +719,7 @@ export function HostEditorGeneralTab({
           {isElectron() && connectionOriginAppliesTo(protocols) && (
             <SettingRow
               label={t("hosts.connectionOrigin")}
-              description={
-                protocols.enableRdp ||
-                protocols.enableVnc ||
-                protocols.enableTelnet
-                  ? `${t("hosts.connectionOriginDesc")} ${t("hosts.connectionOriginGuacamoleNote")}`
-                  : t("hosts.connectionOriginDesc")
-              }
+              description={t("hosts.connectionOriginDesc")}
             >
               <select
                 className="flex h-7 border border-border bg-background px-2 py-0 text-xs outline-none focus:ring-1 focus:ring-ring"
@@ -866,28 +810,49 @@ export function HostEditorGeneralTab({
       </SectionCard>
 
       <SectionCard
-        title={t("hosts.connectionToolbar")}
-        icon={<LayoutGrid className="size-3.5" />}
+        title={t("hosts.statusChecksLabel")}
+        icon={<Activity className="size-3.5" />}
       >
-        <div className="flex flex-col gap-4 py-3">
+        <div className="flex flex-col gap-0 py-1">
           <SettingRow
-            label={t("hosts.showConnectionToolbar")}
-            description={t("hosts.showConnectionToolbarDesc")}
+            label={t("hosts.enableStatusChecks")}
+            description={t("hosts.enableStatusChecksDesc")}
           >
             <FakeSwitch
-              checked={form.enableTerminalToolbar}
-              onChange={(value) => setField("enableTerminalToolbar", value)}
+              checked={form.statusCheckEnabled}
+              onChange={(value) => setField("statusCheckEnabled", value)}
             />
           </SettingRow>
-          <SettingRow
-            label={t("hosts.enableAiAssistant")}
-            description={t("hosts.enableAiAssistantDesc")}
-          >
-            <FakeSwitch
-              checked={form.enableAiAssistant}
-              onChange={(value) => setField("enableAiAssistant", value)}
-            />
-          </SettingRow>
+          {form.statusCheckEnabled && (
+            <SettingRow
+              label={t("hosts.useGlobalInterval")}
+              description={t("hosts.useGlobalIntervalDesc")}
+            >
+              <FakeSwitch
+                checked={form.statusCheckInterval === null}
+                onChange={(useGlobal) =>
+                  setField("statusCheckInterval", useGlobal ? null : 60)
+                }
+              />
+            </SettingRow>
+          )}
+          {form.statusCheckEnabled && form.statusCheckInterval !== null && (
+            <SettingRow
+              label={t("hosts.checkIntervalS")}
+              description={t("hosts.checkIntervalDesc")}
+            >
+              <Input
+                type="number"
+                min={5}
+                max={86400}
+                value={form.statusCheckInterval}
+                onChange={(e) =>
+                  setField("statusCheckInterval", Number(e.target.value))
+                }
+                className="w-20 h-7 text-xs text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+            </SettingRow>
+          )}
         </div>
       </SectionCard>
     </>

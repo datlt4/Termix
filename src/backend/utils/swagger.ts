@@ -22,30 +22,6 @@ const swaggerOptions: SwaggerJSDocOptions = {
         url: "http://localhost:30001",
         description: "Main database and authentication server",
       },
-      {
-        url: "http://localhost:30003",
-        description: "SSH tunnel management server",
-      },
-      {
-        url: "http://localhost:30004",
-        description: "SSH file manager server",
-      },
-      {
-        url: "http://localhost:30005",
-        description: "Server statistics and monitoring server",
-      },
-      {
-        url: "http://localhost:30006",
-        description: "Dashboard server",
-      },
-      {
-        url: "http://localhost:30007",
-        description: "Docker management server",
-      },
-      {
-        url: "http://localhost:30011",
-        description: "Serial connection server",
-      },
     ],
     components: {
       securitySchemes: {
@@ -161,7 +137,11 @@ const swaggerOptions: SwaggerJSDocOptions = {
       },
       {
         name: "Session Sharing",
-        description: "Live terminal session collaboration",
+        description: "Share live sessions by link or with another user",
+      },
+      {
+        name: "Collab",
+        description: "Collaboration rooms that present a live session",
       },
       {
         name: "Session Logs",
@@ -178,14 +158,6 @@ const swaggerOptions: SwaggerJSDocOptions = {
       {
         name: "API Keys",
         description: "API key management",
-      },
-      {
-        name: "SSO",
-        description: "Single sign-on provider configuration",
-      },
-      {
-        name: "WebAuthn",
-        description: "Passkey registration and authentication",
       },
       {
         name: "Vault",
@@ -226,10 +198,10 @@ const swaggerOptions: SwaggerJSDocOptions = {
     ],
   },
   apis: [
+    path.join(__dirname, "..", "database", "database.js").replace(/\\/g, "/"),
     path
       .join(__dirname, "..", "database", "routes", "*.js")
       .replace(/\\/g, "/"),
-    path.join(__dirname, "..", "ai", "*.js").replace(/\\/g, "/"),
     path.join(__dirname, "..", "services", "*.js").replace(/\\/g, "/"),
     path.join(__dirname, "..", "hosts", "*.js").replace(/\\/g, "/"),
     path.join(__dirname, "..", "hosts", "**", "*.js").replace(/\\/g, "/"),

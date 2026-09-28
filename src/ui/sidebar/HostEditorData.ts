@@ -1,20 +1,18 @@
 import { TERMINAL_THEMES } from "@/lib/terminal-themes";
 import type { Host } from "@/types/ui-types";
 import type { SSHHostData } from "@/types";
+import type { HostDraft } from "@termix/plugin-sdk/frontend";
 import type { HostDefaults } from "@/api/settings-api";
-import type {
-  RemoteDesktopDefaults,
-  TerminalDefaults,
-} from "@/lib/connection-defaults";
+import type { TerminalDefaults } from "@/lib/connection-defaults";
+import {
+  listHostProtocols,
+  protocolPort,
+  type HostProtocols,
+} from "./host-protocols";
 
 type HostSocks5ProxyNode = NonNullable<Host["socks5ProxyChain"]>[number];
 
-export type HostProtocols = {
-  enableSsh: boolean;
-  enableRdp: boolean;
-  enableVnc: boolean;
-  enableTelnet: boolean;
-};
+export type { HostProtocols };
 
 export type HostAuthType = Host["authType"];
 export type HostCursorStyle = NonNullable<
@@ -44,23 +42,8 @@ export const terminalAppearanceKeys = [
   "customThemeColors",
 ] as const satisfies readonly (keyof TerminalDefaults)[];
 
-export const remoteDesktopDefaultKeys = [
-  "colorDepth",
-  "resizeMethod",
-  "forceLossless",
-  "disableAudio",
-  "enableWallpaper",
-  "enableFontSmoothing",
-  "enableDesktopComposition",
-  "enablePrinting",
-  "enableDrive",
-  "disableCopy",
-  "disablePaste",
-] as const satisfies readonly (keyof RemoteDesktopDefaults)[];
-
 export interface UserConnectionDefaults {
   terminal: TerminalDefaults;
-  rdp: RemoteDesktopDefaults;
 }
 
 function hasOwn(value: object | undefined, key: PropertyKey): boolean {
@@ -86,18 +69,13 @@ type SnippetResponse = SnippetListItem[] | { snippets?: SnippetListItem[] };
 /**
  * Whether the Connection Origin control is meaningful for a host.
  *
- * Every protocol Termix can dial from either backend belongs here. RDP, VNC
- * and Telnet were added once they could originate from the desktop
- * (Termix-SSH/Support#1240); before that the control was gated on SSH alone,
- * so a host enabling only those protocols could never reach the setting.
+ * Every protocol Termix can dial from either backend belongs here, plugin
+ * protocols included (Termix-SSH/Support#1240); before that the control was
+ * gated on SSH alone, so a host enabling only remote desktop could never
+ * reach the setting.
  */
 export function connectionOriginAppliesTo(protocols: HostProtocols): boolean {
-  return (
-    protocols.enableSsh ||
-    protocols.enableRdp ||
-    protocols.enableVnc ||
-    protocols.enableTelnet
-  );
+  return Object.values(protocols).some(Boolean);
 }
 
 export function mapSnippetResponse(
@@ -112,6 +90,24 @@ export function mapSnippetResponse(
   }));
 }
 
+/** Overlays a plugin's draft on a new host's form. */
+export function applyHostDraft(
+  form: HostEditorForm,
+  draft: HostDraft | undefined,
+): HostEditorForm {
+  if (!draft) return form;
+  return {
+    ...form,
+    ...(draft.name !== undefined ? { name: draft.name } : {}),
+    ...(draft.ip !== undefined ? { ip: draft.ip } : {}),
+    ...(draft.port !== undefined ? { sshPort: draft.port } : {}),
+    ...(draft.username !== undefined ? { username: draft.username } : {}),
+    ...(draft.authType !== undefined
+      ? { authType: draft.authType as HostAuthType }
+      : {}),
+  };
+}
+
 export function createHostEditorForm(
   host: Host | null,
   defaults?: HostDefaults,
@@ -121,11 +117,6 @@ export function createHostEditorForm(
   const terminalConfig = {
     ...(connectionDefaults?.terminal ?? {}),
     ...(host?.terminalConfig ?? {}),
-  };
-  const remoteDefaults = host?.enableRdp ? connectionDefaults?.rdp : undefined;
-  const guacamoleConfig = {
-    ...(remoteDefaults ?? {}),
-    ...(host?.guacamoleConfig ?? {}),
   };
   const rawTheme = terminalConfig.theme ?? d?.theme;
   const normalizedTheme =
@@ -143,11 +134,7 @@ export function createHostEditorForm(
     ip: host?.ip ?? "",
     username: host?.username ?? (host ? "" : "root"),
     sshPort: host?.sshPort ?? host?.port ?? 22,
-    rdpPort: host?.rdpPort ?? 3389,
-    vncPort: host?.vncPort ?? 5900,
-    telnetPort: host?.telnetPort ?? 23,
     authType: host?.authType ?? "password",
-    useWarpgate: host?.useWarpgate ?? false,
     shareSshAuth: host?.shareSshAuth ?? false,
     password: host?.hasPassword ? "existing_password" : (host?.password ?? ""),
     key: host?.key ?? (host?.hasKey ? "existing_key" : ""),
@@ -162,7 +149,6 @@ export function createHostEditorForm(
         : d?.credentialId != null
           ? String(d.credentialId)
           : "",
-    vaultProfileId: host?.vaultProfileId ?? "",
     overrideCredentialUsername: host?.overrideCredentialUsername ?? false,
     folder: host?.folder ?? "",
     parentHostId: host?.parentHostId ?? "",
@@ -170,8 +156,6 @@ export function createHostEditorForm(
     tagInput: "",
     notes: host?.notes ?? "",
     pin: host?.pin ?? false,
-    macAddress: host?.macAddress ?? "",
-    wolBroadcastAddress: host?.wolBroadcastAddress ?? "",
     useSocks5: host?.useSocks5 ?? d?.useSocks5 ?? false,
     socks5Host: host?.socks5Host ?? d?.socks5Host ?? "",
     socks5Port: host?.socks5Port ?? d?.socks5Port ?? 1080,
@@ -183,48 +167,11 @@ export function createHostEditorForm(
     socks5ProxyChain: (host?.socks5ProxyChain ?? []) as HostSocks5ProxyNode[],
     connectionOrigin: (host?.connectionOrigin ?? null) as
       "local" | "remote" | null,
-    enableTerminal: host?.enableTerminal ?? true,
-    enableSessionLogging:
-      host?.enableSessionLogging ?? d?.enableSessionLogging ?? true,
-    enableCommandHistory:
-      host?.enableCommandHistory ?? d?.enableCommandHistory ?? true,
-    enableFileManager: host?.enableFileManager ?? false,
-    scpLegacy: host?.scpLegacy ?? false,
-    enableDocker: host?.enableDocker ?? false,
-    enableWebUi: host?.enableWebUi ?? false,
-    webUiConfig: host?.webUiConfig ?? { endpoints: [] },
-    dockerConfig: host?.dockerConfig ?? { runtime: "docker" as const },
-    enableTmuxMonitor: host?.enableTmuxMonitor ?? false,
-    enableTerminalToolbar: host?.enableTerminalToolbar ?? true,
-    enableAiAssistant: host?.enableAiAssistant ?? false,
-    allowSessionSharing: host?.allowSessionSharing ?? true,
-    enableProxmox: host?.enableProxmox ?? false,
-    proxmoxConfig: host?.proxmoxConfig ?? {
-      defaultCredentialId: null as number | null,
-      defaultAuthType: "password" as string,
-      windowsPatterns: "win, windows",
-      dockerPatterns: "docker",
-      preferredPrefixes: "10., 192.168.",
-      autoSyncEnabled: false,
-      syncIntervalMinutes: 15,
-      markMissingGuests: true,
-    },
-    enableProxmoxStats: host?.enableProxmoxStats ?? false,
-    proxmoxStatsConfig: host?.proxmoxStatsConfig ?? {
-      pollInterval: 60,
-      nodeName: null as string | null,
-    },
-    enableTunnel: host?.enableTunnel ?? false,
-    defaultPath: host?.defaultPath ?? "/",
+    localOnly: host?.localOnly ?? false,
     forceKeyboardInteractive: host?.forceKeyboardInteractive ?? false,
     inheritTerminalAppearance:
       !host ||
       terminalAppearanceKeys.every((key) => !hasOwn(host.terminalConfig, key)),
-    inheritRemoteDesktopDefaults:
-      !host ||
-      remoteDesktopDefaultKeys.every(
-        (key) => !hasOwn(host.guacamoleConfig, key),
-      ),
     localEcho: host?.terminalConfig?.localEcho ?? "default",
     fontSize: terminalConfig.fontSize ?? d?.fontSize ?? 14,
     fontFamily:
@@ -283,7 +230,6 @@ export function createHostEditorForm(
     environmentVariables:
       host?.terminalConfig?.environmentVariables ??
       ([] as { key: string; value: string }[]),
-    serverTunnels: host?.serverTunnels ?? ([] as Host["serverTunnels"]),
     jumpHosts: host?.jumpHosts ?? ([] as { hostId: string }[]),
     portKnockSequence:
       host?.portKnockSequence ??
@@ -296,8 +242,6 @@ export function createHostEditorForm(
       ? "existing_rdp_password"
       : (host?.rdpPassword ?? ""),
     domain: host?.domain ?? "",
-    security: host?.security ?? "",
-    ignoreCert: host?.ignoreCert ?? false,
     vncCredentialId: host?.vncCredentialId ?? "",
     vncPassword: host?.hasVncPassword
       ? "existing_vnc_password"
@@ -318,30 +262,16 @@ export function createHostEditorForm(
     telnetAuthType: (host?.telnetAuthType ??
       (host?.telnetCredentialId ? "credential" : "direct")) as
       "direct" | "credential",
-    guacamoleConfig,
-    statsConfig: host?.statsConfig ?? {
-      statusCheckEnabled: d?.statusCheckEnabled ?? true,
-      statusCheckInterval: 60,
-      useGlobalStatusInterval: true,
-      metricsEnabled: d?.metricsEnabled ?? true,
-      metricsInterval: 30,
-      useGlobalMetricsInterval: true,
-      enabledWidgets: [
-        "cpu",
-        "memory",
-        "disk",
-        "network",
-        "uptime",
-        "system",
-        "login_stats",
-        "processes",
-        "ports",
-        "firewall",
-        "temperature",
-      ],
-      excludedMounts: [] as string[],
-      monitoredMounts: [] as Array<{ path: string; label?: string }>,
-    },
+    statusCheckEnabled:
+      host?.statusCheckEnabled ?? d?.statusCheckEnabled ?? true,
+    statusCheckInterval: (host?.statusCheckInterval ?? null) as number | null,
+
+    // Host-scope plugin settings, keyed by plugin id. Loaded with the host and
+    // saved through the plugin's own scoped route, not in the host payload.
+    pluginSettings: (host?.pluginSettings ?? {}) as Record<
+      string,
+      Record<string, unknown>
+    >,
   };
 }
 
@@ -358,7 +288,6 @@ export function omitOwnerSshAuthFromSharedEdit(
     keyType: _keyType,
     sudoPassword: _sudoPassword,
     credentialId: _credentialId,
-    vaultProfileId: _vaultProfileId,
     overrideCredentialUsername: _overrideCredentialUsername,
     shareSshAuth: _shareSshAuth,
     ...editableFields
@@ -389,10 +318,11 @@ export function buildHostEditorPayload(
   const usesKey = form.authType === "key";
   const usesPassword = form.authType === "password";
   const usesAgent = form.authType === "agent";
-  const usesVault = form.authType === "vault";
-  const guacamoleConfig = form.inheritRemoteDesktopDefaults
-    ? stripKeys(form.guacamoleConfig, remoteDesktopDefaultKeys)
-    : form.guacamoleConfig;
+  // With SSH off, the host's primary protocol is the first plugin protocol
+  // switched on, and its port stands in for the host port.
+  const primaryProtocol = protocols.enableSsh
+    ? undefined
+    : listHostProtocols().find((protocol) => protocols[protocol.settingKey]);
   const terminalConfig = {
     theme: form.theme,
     cursorBlink: form.cursorBlink,
@@ -440,29 +370,18 @@ export function buildHostEditorPayload(
     : terminalConfig;
 
   return {
-    connectionType: protocols.enableSsh
-      ? "ssh"
-      : protocols.enableRdp
-        ? "rdp"
-        : protocols.enableVnc
-          ? "vnc"
-          : "telnet",
+    connectionType: primaryProtocol?.id ?? "ssh",
     name: form.name,
     ip: form.ip,
-    port: protocols.enableSsh
-      ? Number(form.sshPort)
-      : protocols.enableRdp
-        ? Number(form.rdpPort)
-        : protocols.enableVnc
-          ? Number(form.vncPort)
-          : Number(form.telnetPort),
+    port: primaryProtocol
+      ? protocolPort(form.pluginSettings, primaryProtocol)
+      : Number(form.sshPort),
     username: form.username,
     folder: form.folder,
     parentHostId: form.parentHostId ? Number(form.parentHostId) : null,
     tags: form.tags,
     pin: form.pin,
     authType: form.authType,
-    useWarpgate: form.useWarpgate,
     shareSshAuth: form.shareSshAuth,
     password:
       usesPassword || usesKey || usesCredential
@@ -483,36 +402,8 @@ export function buildHostEditorPayload(
     keyType: usesKey && form.keyType !== "auto" ? form.keyType : null,
     credentialId:
       usesCredential && form.credentialId ? Number(form.credentialId) : null,
-    vaultProfileId:
-      usesVault && form.vaultProfileId ? Number(form.vaultProfileId) : null,
     overrideCredentialUsername: form.overrideCredentialUsername,
     notes: form.notes,
-    macAddress: form.macAddress || null,
-    wolBroadcastAddress: form.wolBroadcastAddress || null,
-    enableTerminal: form.enableTerminal,
-    enableSessionLogging: form.enableSessionLogging,
-    enableCommandHistory: form.enableCommandHistory,
-    enableTunnel: form.enableTunnel,
-    enableFileManager: form.enableFileManager,
-    scpLegacy: form.scpLegacy,
-    enableDocker: form.enableDocker,
-    dockerConfig: form.enableDocker ? form.dockerConfig : null,
-    enableWebUi: form.enableWebUi,
-    webUiConfig: form.enableWebUi ? form.webUiConfig : null,
-    enableTmuxMonitor: form.enableTmuxMonitor,
-    enableTerminalToolbar: form.enableTerminalToolbar,
-    enableAiAssistant: form.enableAiAssistant,
-    allowSessionSharing: form.allowSessionSharing,
-    enableProxmox: form.enableProxmox,
-    proxmoxConfig:
-      form.enableProxmox || form.proxmoxConfig?.source
-        ? form.proxmoxConfig
-        : null,
-    enableProxmoxStats: form.enableProxmoxStats,
-    proxmoxStatsConfig: form.enableProxmoxStats
-      ? form.proxmoxStatsConfig
-      : null,
-    defaultPath: form.defaultPath || "/",
     useSocks5: form.useSocks5,
     socks5Host:
       form.socks5ProxyMode === "single" ? form.socks5Host || null : null,
@@ -525,14 +416,9 @@ export function buildHostEditorPayload(
     socks5ProxyChain:
       form.socks5ProxyMode === "chain" ? form.socks5ProxyChain : null,
     connectionOrigin: form.connectionOrigin,
+    localOnly: form.localOnly,
     enableSsh: protocols.enableSsh,
-    enableRdp: protocols.enableRdp,
-    enableVnc: protocols.enableVnc,
-    enableTelnet: protocols.enableTelnet,
     sshPort: Number(form.sshPort),
-    rdpPort: Number(form.rdpPort),
-    vncPort: Number(form.vncPort),
-    telnetPort: Number(form.telnetPort),
     forceKeyboardInteractive: form.forceKeyboardInteractive,
     rdpAuthType: protocols.enableRdp ? form.rdpAuthType : null,
     rdpCredentialId:
@@ -552,8 +438,6 @@ export function buildHostEditorPayload(
         ? form.rdpPassword || null
         : null,
     rdpDomain: form.domain || null,
-    rdpSecurity: form.security || null,
-    rdpIgnoreCert: form.ignoreCert,
     vncAuthType: protocols.enableVnc ? form.vncAuthType : null,
     vncCredentialId:
       protocols.enableVnc &&
@@ -592,17 +476,12 @@ export function buildHostEditorPayload(
     // a number, and a string id does not compare equal on Postgres/MySQL.
     jumpHosts: form.jumpHosts.map((j) => ({ hostId: Number(j.hostId) })),
     portKnockSequence: form.portKnockSequence,
-    tunnelConnections: form.serverTunnels,
     quickActions: form.quickActions.map((a) => ({
       name: a.name,
       snippetId: Number(a.snippetId),
     })),
-    statsConfig: form.statsConfig,
-    guacamoleConfig:
-      (protocols.enableRdp || protocols.enableVnc || protocols.enableTelnet) &&
-      Object.keys(guacamoleConfig).length > 0
-        ? guacamoleConfig
-        : null,
+    statusCheckEnabled: form.statusCheckEnabled,
+    statusCheckInterval: form.statusCheckInterval,
     terminalConfig: protocols.enableSsh ? terminalOverrides : null,
   };
 }

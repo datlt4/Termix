@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createQuickConnectHost,
   isQuickConnectHost,
-  quickConnectGuacHost,
   quickConnectHostToPayload,
 } from "../../sidebar/quick-connect-host";
 
@@ -62,59 +61,74 @@ describe("createQuickConnectHost for remote desktop protocols", () => {
     expect(isQuickConnectHost(host)).toBe(true);
     expect(host).toMatchObject({
       enableSsh: true,
-      enableRdp: false,
       sshPort: 2222,
       password: "pw",
     });
   });
 
-  it("builds an RDP host that GuacamoleApp can mint a token from", () => {
+  const desktop = {
+    id: "demo-desktop",
+    pluginId: "demo",
+    settingKey: "enableDemo",
+    portKey: "demoPort",
+    defaultPort: 3389,
+    titleKey: "demo",
+    icon: () => null,
+  };
+
+  it("builds a plugin protocol host with its switch and port in plugin settings", () => {
     const host = createQuickConnectHost({
       ip: "10.0.0.2",
       port: 3390,
       username: "admin",
       authType: "password",
       password: "pw",
-      protocol: "rdp",
+      protocol: desktop,
       domain: "CORP",
     });
     expect(host).toMatchObject({
       enableSsh: false,
-      enableRdp: true,
-      enableVnc: false,
-      rdpPort: 3390,
-      rdpUser: "admin",
-      rdpPassword: "pw",
+      pluginSettings: { demo: { enableDemo: true, demoPort: 3390 } },
       domain: "CORP",
     });
-    expect(quickConnectGuacHost(host)).toMatchObject({
-      ip: "10.0.0.2",
-      connectionType: "rdp",
-      rdpPort: 3390,
-      rdpUser: "admin",
-      rdpPassword: "pw",
-      domain: "CORP",
+    // The login sits on the core fields named after the protocol.
+    expect(host).toMatchObject({
+      "demo-desktopUser": "admin",
+      "demo-desktopPassword": "pw",
     });
   });
 
-  it("builds a VNC host with the password on the VNC fields", () => {
+  it("carries the fields a plugin's SSH auth editor filled in", () => {
     const host = createQuickConnectHost({
-      ip: "10.0.0.3",
-      port: 5901,
-      username: "",
-      authType: "password",
-      password: "vncpw",
-      protocol: "vnc",
+      ip: "100.64.0.9",
+      port: 22,
+      username: "root",
+      authType: "tailnet-login",
+      authFields: { pluginSettings: { demo: { profileId: 3 } } },
     });
+    expect(host.authType).toBe("tailnet-login");
+    expect(host.password).toBeUndefined();
     expect(host).toMatchObject({
-      enableVnc: true,
-      vncPort: 5901,
-      vncPassword: "vncpw",
+      pluginSettings: { demo: { profileId: 3 } },
     });
-    expect(quickConnectGuacHost(host)).toMatchObject({
-      connectionType: "vnc",
-      vncPort: 5901,
-      vncPassword: "vncpw",
-    });
+  });
+
+  it("marks only hosts core can save", () => {
+    const base = { ip: "10.0.0.2", port: 22, username: "root" };
+    expect(
+      createQuickConnectHost({ ...base, authType: "password" })
+        .quickConnectSavable,
+    ).toBe(true);
+    expect(
+      createQuickConnectHost({ ...base, authType: "tailscale" })
+        .quickConnectSavable,
+    ).toBe(false);
+    expect(
+      createQuickConnectHost({
+        ...base,
+        authType: "password",
+        authFields: { extra: true },
+      }).quickConnectSavable,
+    ).toBe(false);
   });
 });

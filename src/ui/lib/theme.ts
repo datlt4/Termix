@@ -36,24 +36,6 @@ export const DASHBOARD_CARDS: DashboardCardConfig[] = [
     description: "Feed of recent connection events",
     defaultEnabled: true,
   },
-  {
-    id: "network_graph",
-    label: "Network Graph",
-    description: "Visual map of host network topology",
-    defaultEnabled: false,
-  },
-  {
-    id: "service_links",
-    label: "Service Links",
-    description: "Clickable buttons linking to services on your servers",
-    defaultEnabled: false,
-  },
-  {
-    id: "homepage_preview",
-    label: "Homepage",
-    description: "Scaled preview of your Homepage canvas",
-    defaultEnabled: false,
-  },
 ];
 
 export const ACCENT_PRESET_COLORS = [
@@ -83,11 +65,29 @@ export const FONT_SIZES: { id: FontSizeId; label: string }[] = [
   { id: "xl", label: "XL" },
 ];
 
+/** The root font size of each interface size, relative to Normal. */
+export const FONT_SIZE_SCALE: Record<FontSizeId, number> = {
+  xs: 12 / 14,
+  sm: 13 / 14,
+  md: 1,
+  lg: 17 / 14,
+  xl: 20 / 14,
+};
+
 export function applyFontSize(id: FontSizeId) {
   const root = document.documentElement;
+  const size = id in FONT_SIZE_SCALE ? id : "md";
   root.classList.remove("fs-xs", "fs-sm", "fs-md", "fs-lg", "fs-xl");
-  root.classList.add(`fs-${id}`);
-  localStorage.setItem("termix-font-size", id);
+  root.classList.add(`fs-${size}`);
+  localStorage.setItem("termix-font-size", size);
+
+  // Every length is in rem, so the root size scales the whole interface. An
+  // earlier desktop build zoomed the window instead; undo that if it did.
+  (
+    window as Window & {
+      electronAPI?: { setZoomFactor?: (factor: number) => void };
+    }
+  ).electronAPI?.setZoomFactor?.(1);
 }
 
 export const UI_FONTS: { id: UiFontId; label: string; family: string }[] = [

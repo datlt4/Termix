@@ -32,18 +32,15 @@ const pickPreferences = (row?: UserPreferenceRecord | null) => ({
   disableUpdateCheck: row?.disableUpdateCheck ?? null,
   confirmTabClose: row?.confirmTabClose ?? null,
   hiddenRailTabs: row?.hiddenRailTabs ?? null,
-  aiAssistantEnabled: row?.aiAssistantEnabled ?? null,
-  aiReadOnlyCommands: row?.aiReadOnlyCommands ?? null,
   compactHostView: row?.compactHostView ?? null,
   statusColorScheme: row?.statusColorScheme ?? null,
   customThemes: row?.customThemes ?? null,
   customKeybindings: row?.customKeybindings ?? null,
   terminalDefaults: row?.terminalDefaults ?? null,
-  rdpDefaults: row?.rdpDefaults ?? null,
   terminalMacros: row?.terminalMacros ?? null,
 });
 
-const connectionDefaultFields = ["terminalDefaults", "rdpDefaults"] as const;
+const connectionDefaultFields = ["terminalDefaults"] as const;
 
 export function validateDefaultsJson(value: string): boolean {
   if (value.length > 32_768) return false;
@@ -60,7 +57,7 @@ export function validateDefaultsJson(value: string): boolean {
  * /user-preferences:
  *   get:
  *     summary: Get preferences for the current user
- *     description: showHostTags, hostTrayOnClick, compactHostView, statusColorScheme and foldersCollapsed are legacy fields, kept here read-only for backward compatibility. The authoritative copy is GET /host-sidebar/preferences.
+ *     description: showHostTags, hostTrayOnClick, compactHostView and statusColorScheme are legacy fields, kept here read-only for backward compatibility; the authoritative copy is GET /host-sidebar/preferences. foldersCollapsed is likewise legacy and read-only; its authoritative copy is the snippets plugin's own user settings.
  *     tags:
  *       - User Preferences
  *     responses:
@@ -160,7 +157,7 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
  * /user-preferences:
  *   put:
  *     summary: Update preferences for the current user
- *     description: showHostTags, hostTrayOnClick, compactHostView, statusColorScheme and foldersCollapsed are no longer accepted here -- they moved to PUT /host-sidebar/preferences as part of the sidebar redesign.
+ *     description: showHostTags, hostTrayOnClick, compactHostView and statusColorScheme are no longer accepted here -- they moved to PUT /host-sidebar/preferences as part of the sidebar redesign. foldersCollapsed is no longer accepted either, now that it is a snippets plugin user setting.
  *     tags:
  *       - User Preferences
  *     requestBody:
@@ -228,12 +225,9 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
     disableUpdateCheck,
     confirmTabClose,
     hiddenRailTabs,
-    aiAssistantEnabled,
-    aiReadOnlyCommands,
     customThemes,
     customKeybindings,
     terminalDefaults,
-    rdpDefaults,
     terminalMacros,
   } = req.body as {
     reopenTabsOnLogin?: boolean;
@@ -251,19 +245,17 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
     disableUpdateCheck?: boolean | null;
     confirmTabClose?: boolean | null;
     hiddenRailTabs?: string | null;
-    aiAssistantEnabled?: boolean | null;
-    aiReadOnlyCommands?: boolean | null;
     customThemes?: string | null;
     customKeybindings?: string | null;
     terminalDefaults?: string | null;
-    rdpDefaults?: string | null;
     terminalMacros?: string | null;
   };
-  // showHostTags, hostTrayOnClick, compactHostView, statusColorScheme,
-  // foldersCollapsed are no longer writable here -- they moved to
-  // /host-sidebar/preferences as of the sidebar redesign. The columns stay
-  // in the table (read once as a migration seed by that route) but this
-  // endpoint silently ignores them if a stale client still sends them.
+  // showHostTags, hostTrayOnClick, compactHostView, statusColorScheme are no
+  // longer writable here -- they moved to /host-sidebar/preferences as of the
+  // sidebar redesign. The columns stay in the table (read once as a
+  // migration seed by that route) but this endpoint silently ignores them if
+  // a stale client still sends them. foldersCollapsed similarly moved out,
+  // to the snippets plugin's own user settings.
 
   const updates: UserPreferenceUpdate = {
     updatedAt: new Date().toISOString(),
@@ -288,7 +280,6 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
     customThemes,
     customKeybindings,
     terminalDefaults,
-    rdpDefaults,
     terminalMacros,
   })) {
     if (value !== undefined && value !== null && typeof value !== "string") {
@@ -298,7 +289,6 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
 
   const connectionDefaults = {
     terminalDefaults,
-    rdpDefaults,
   };
   for (const key of connectionDefaultFields) {
     const value = connectionDefaults[key];
@@ -396,8 +386,6 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
     confirmSnippetExecution,
     disableUpdateCheck,
     confirmTabClose,
-    aiAssistantEnabled,
-    aiReadOnlyCommands,
   };
   for (const [key, value] of Object.entries(boolFields)) {
     if (value !== undefined && value !== null && typeof value !== "boolean") {
@@ -411,10 +399,6 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
   if (language !== undefined) updates.language = language;
   if (storageMode !== undefined) updates.storageMode = storageMode;
   if (hiddenRailTabs !== undefined) updates.hiddenRailTabs = hiddenRailTabs;
-  if (aiAssistantEnabled !== undefined)
-    updates.aiAssistantEnabled = aiAssistantEnabled;
-  if (aiReadOnlyCommands !== undefined)
-    updates.aiReadOnlyCommands = aiReadOnlyCommands;
   if (commandAutocomplete !== undefined)
     updates.commandAutocomplete = commandAutocomplete;
   if (commandPaletteEnabled !== undefined)
@@ -434,7 +418,6 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
     updates.customKeybindings = customKeybindings;
   if (terminalDefaults !== undefined)
     updates.terminalDefaults = terminalDefaults;
-  if (rdpDefaults !== undefined) updates.rdpDefaults = rdpDefaults;
   if (terminalMacros !== undefined) updates.terminalMacros = terminalMacros;
 
   if (Object.keys(updates).length === 1) {

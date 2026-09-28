@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { registerHostProtocol } from "@/sidebar/host-protocols";
 import type { Host } from "@/types/ui-types";
 import {
   buildStatusTooltip,
@@ -16,7 +17,7 @@ function makeHost(overrides: Partial<Host> = {}): Host {
     enableRdp: false,
     enableVnc: false,
     enableTelnet: false,
-    statsConfig: { statusCheckEnabled: true },
+    statusCheckEnabled: true,
     ...overrides,
   } as unknown as Host;
 }
@@ -55,39 +56,33 @@ describe("buildStatusTooltip", () => {
   });
 
   it("returns 'Monitoring disabled' when status check is disabled", () => {
-    const host = makeHost({
-      statsConfig: {
-        enabledWidgets: [],
-        statusCheckEnabled: false,
-        statusCheckInterval: 30,
-        metricsEnabled: false,
-        metricsInterval: 30,
-      },
-    });
+    const host = makeHost({ statusCheckEnabled: false });
     const tooltip = buildStatusTooltip(host, "online", t);
     expect(tooltip).toBe("Monitoring disabled");
   });
 
   it("includes protocol names in the tooltip when protocols are enabled", () => {
+    const dispose = registerHostProtocol({
+      id: "demo-desktop",
+      pluginId: "demo",
+      settingKey: "enableDemo",
+      defaultPort: 3389,
+      titleKey: "Demo Desktop",
+      icon: () => null,
+    });
     const host = makeHost({
       enableSsh: true,
-      enableRdp: true,
-      enableVnc: false,
-      enableTelnet: false,
+      pluginSettings: { demo: { enableDemo: true } },
     });
     const tooltip = buildStatusTooltip(host, "online", t);
+    dispose();
     expect(tooltip).toContain("SSH");
-    expect(tooltip).toContain("RDP");
+    expect(tooltip).toContain("Demo Desktop");
     expect(tooltip).toContain("Available");
   });
 
   it("returns just the status label when no protocols are enabled", () => {
-    const host = makeHost({
-      enableSsh: false,
-      enableRdp: false,
-      enableVnc: false,
-      enableTelnet: false,
-    });
+    const host = makeHost({ enableSsh: false });
     const tooltip = buildStatusTooltip(host, "online", t);
     expect(tooltip).toBe("Available");
   });
@@ -103,20 +98,12 @@ describe("buildStatusTooltip", () => {
 
 describe("statusCheckEnabled", () => {
   it("returns true when statusCheckEnabled is not set (default)", () => {
-    const host = makeHost({ statsConfig: undefined });
+    const host = makeHost({ statusCheckEnabled: undefined });
     expect(statusCheckEnabled(host)).toBe(true);
   });
 
   it("returns false when statusCheckEnabled is explicitly false", () => {
-    const host = makeHost({
-      statsConfig: {
-        enabledWidgets: [],
-        statusCheckEnabled: false,
-        statusCheckInterval: 30,
-        metricsEnabled: false,
-        metricsInterval: 30,
-      },
-    });
+    const host = makeHost({ statusCheckEnabled: false });
     expect(statusCheckEnabled(host)).toBe(false);
   });
 });

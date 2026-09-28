@@ -1,6 +1,3 @@
-import type { GuacamoleConfig } from "./guacamole-config.js";
-import type { StatsConfig } from "./stats-widgets.js";
-import type { Client } from "ssh2";
 import type { Request } from "express";
 import type { RefObject } from "react";
 import type { HostAuthOverrides } from "./auth-protocols.js";
@@ -10,100 +7,12 @@ export type {
   HostAuthOverrideState,
   HostAuthOverrides,
 } from "./auth-protocols.js";
-
-// ============================================================================
-// SSO / AUTHENTICATION PROVIDER TYPES
-// ============================================================================
-
-export type SSOProviderType = "oidc" | "ldap" | "github" | "google";
-
-export interface SSOProviderPublic {
-  id: number;
-  name: string;
-  type: SSOProviderType;
-  displayOrder: number;
-}
-
-export interface SSOProvider extends SSOProviderPublic {
-  enabled: boolean;
-  config: string | Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface OIDCProviderConfig {
-  client_id: string;
-  client_secret: string;
-  issuer_url: string;
-  authorization_url: string;
-  token_url: string;
-  userinfo_url?: string;
-  identifier_path: string;
-  name_path: string;
-  scopes: string;
-  allowed_users?: string;
-  admin_group?: string;
-  group_claim?: string;
-  ca_cert?: string;
-}
-
-export interface LDAPProviderConfig {
-  host: string;
-  port: number;
-  useTLS: boolean;
-  bindDN: string;
-  bindPassword: string;
-  userSearchBase: string;
-  userSearchFilter: string;
-  usernameAttribute: string;
-  displayNameAttribute: string;
-  groupSearchBase?: string;
-  adminGroup?: string;
-  allowedUsers?: string;
-}
-
-// ============================================================================
-// HOST TYPES (SSH, RDP, VNC, Telnet)
-// ============================================================================
-
-export type ConnectionType = "ssh" | "rdp" | "vnc" | "telnet";
+/**
+ * Core's own SSH auth types, plus whatever a plugin registers through
+ * ctx.auth (the owning plugin decides the name).
+ */
 export type SSHAuthType =
-  | "password"
-  | "key"
-  | "credential"
-  | "none"
-  | "opkssh"
-  | "stepca"
-  | "tailscale";
-
-export type GuacamoleAuthType = "password" | "credential";
-
-export interface ProxmoxStatsConfig {
-  nodeName?: string | null;
-  pollInterval?: number;
-  enabledCards?: string[];
-}
-
-export interface ProxmoxConfig {
-  defaultCredentialId: number | null;
-  defaultAuthType?: string;
-  windowsPatterns: string;
-  dockerPatterns: string;
-  preferredPrefixes: string;
-  autoSyncEnabled?: boolean;
-  syncIntervalMinutes?: number;
-  markMissingGuests?: boolean;
-  lastSyncAt?: string;
-  lastSyncStatus?: "success" | "error";
-  lastSyncError?: string | null;
-  lastSyncResult?: {
-    created: number;
-    updated: number;
-    markedMissing: number;
-    skipped: number;
-    errors: string[];
-  };
-}
+  "password" | "key" | "credential" | "none" | "agent" | (string & {});
 
 export type WebEndpointAccess = "direct" | "tunnel";
 export type WebEndpointRender = "external" | "embedded";
@@ -147,26 +56,6 @@ export interface WebEndpoint {
   localPort?: number;
 }
 
-export interface WebUiConfig {
-  endpoints: WebEndpoint[];
-}
-
-/** A host may declare at most this many web endpoints. */
-export const MAX_WEB_ENDPOINTS = 16;
-/** Endpoint labels are truncated to this length. */
-export const MAX_WEB_ENDPOINT_LABEL_LENGTH = 64;
-
-export interface HostFeatureFlags {
-  enableTerminal: boolean; // SSH, Telnet only
-  enableTunnel: boolean; // SSH only
-  enableFileManager: boolean; // SSH only
-  enableDocker: boolean; // SSH only
-  enableTmuxMonitor: boolean; // SSH only
-  enableTerminalToolbar: boolean; // SSH, RDP, VNC, and Telnet
-  enableAiAssistant: boolean; // SSH only
-  enableRemoteDesktop: boolean; // RDP, VNC only
-}
-
 export interface JumpHost {
   hostId: number;
 }
@@ -185,17 +74,7 @@ export type Host = {
   folder: string;
   tags: string[];
   pin: boolean;
-  authType:
-    | "password"
-    | "key"
-    | "credential"
-    | "none"
-    | "opkssh"
-    | "stepca"
-    | "tailscale"
-    | "agent"
-    | "vault";
-  useWarpgate?: boolean;
+  authType: SSHAuthType;
   shareSshAuth?: boolean;
   password?: string;
   key?: string;
@@ -209,35 +88,13 @@ export type Host = {
   autostartKeyPassword?: string;
 
   credentialId?: number;
-  vaultProfileId?: number | null;
-  vaultProfile?: { id?: number | null };
   overrideCredentialUsername?: boolean;
   userId?: string;
-  enableTerminal: boolean;
-  enableSessionLogging: boolean;
-  enableCommandHistory: boolean;
-  enableTunnel: boolean;
-  enableFileManager: boolean;
-  scpLegacy?: boolean;
-  enableDocker: boolean;
-  enableProxmox: boolean;
-  enableTmuxMonitor: boolean;
-  enableTerminalToolbar: boolean;
-  enableAiAssistant: boolean;
-  allowSessionSharing?: boolean;
-  proxmoxConfig?: ProxmoxConfig | null;
-  enableProxmoxStats: boolean;
-  proxmoxStatsConfig?: ProxmoxStatsConfig | null;
-  showTerminalInSidebar: boolean;
-  showFileManagerInSidebar: boolean;
-  showTunnelInSidebar: boolean;
-  showDockerInSidebar: boolean;
-  showServerStatsInSidebar: boolean;
-  defaultPath: string;
-  tunnelConnections: TunnelConnection[];
   jumpHosts?: JumpHost[];
   quickActions?: QuickAction[];
-  statsConfig?: string | StatsConfig;
+  statusCheckEnabled?: boolean;
+  /** Seconds between status checks; null follows the global setting. */
+  statusCheckInterval?: number | null;
   terminalConfig?: Partial<TerminalConfig>;
   notes?: string;
 
@@ -248,37 +105,22 @@ export type Host = {
   socks5Password?: string;
   socks5ProxyChain?: ProxyNode[];
 
-  macAddress?: string;
-  wolBroadcastAddress?: string;
   portKnockSequence?: Array<{
     port: number;
     protocol?: "tcp" | "udp";
     delay?: number;
   }>;
 
-  connectionType?: "ssh" | "rdp" | "vnc" | "telnet";
+  /** "ssh", or the id of the plugin protocol a host without SSH uses. */
+  connectionType?: string;
   domain?: string;
-  security?: string;
-  ignoreCert?: boolean;
-  guacamoleConfig?: string | GuacamoleConfig;
-  dockerConfig?: Record<string, unknown> | null;
-  enableWebUi?: boolean;
-  webUiConfig?: WebUiConfig | null;
 
   enableSsh?: boolean;
-  enableRdp?: boolean;
-  enableVnc?: boolean;
-  enableTelnet?: boolean;
   sshPort?: number;
-  rdpPort?: number;
-  vncPort?: number;
-  telnetPort?: number;
   rdpCredentialId?: number | null;
   rdpUser?: string;
   rdpPassword?: string;
   rdpDomain?: string;
-  rdpSecurity?: string;
-  rdpIgnoreCert?: boolean;
   vncCredentialId?: number | null;
   vncPassword?: string;
   vncUser?: string;
@@ -319,6 +161,13 @@ export type Host = {
   permissionLevel?: "connect" | "view" | "edit" | "manage";
   sharedExpiresAt?: string;
   ownerUsername?: string;
+  /** A read-only copy of a host shared with the linked account. */
+  sharedCopy?: boolean;
+  /** Desktop only: kept on this device, never synced to the server. */
+  localOnly?: boolean;
+
+  /** Enabled plugins' host-scope settings, keyed by plugin id. Secrets redacted. */
+  pluginSettings?: Record<string, Record<string, unknown>>;
 };
 
 export interface JumpHostData {
@@ -354,17 +203,7 @@ export interface HostData {
   parentHostId?: number | string | null;
   tags?: string[];
   pin?: boolean;
-  authType:
-    | "password"
-    | "key"
-    | "credential"
-    | "none"
-    | "opkssh"
-    | "stepca"
-    | "tailscale"
-    | "agent"
-    | "vault";
-  useWarpgate?: boolean;
+  authType: SSHAuthType;
   shareSshAuth?: boolean;
   password?: string;
   key?: File | string | null;
@@ -372,35 +211,14 @@ export interface HostData {
   keyType?: string;
   sudoPassword?: string;
   credentialId?: number | null;
-  vaultProfileId?: number | null;
   connectionOrigin?: "local" | "remote" | null;
   overrideCredentialUsername?: boolean;
-  enableTerminal?: boolean;
-  enableSessionLogging?: boolean;
-  enableCommandHistory?: boolean;
-  enableTunnel?: boolean;
-  enableFileManager?: boolean;
-  scpLegacy?: boolean;
-  enableDocker?: boolean;
-  enableProxmox?: boolean;
-  enableTmuxMonitor?: boolean;
-  enableTerminalToolbar?: boolean;
-  enableAiAssistant?: boolean;
-  allowSessionSharing?: boolean;
-  proxmoxConfig?: ProxmoxConfig | Record<string, unknown> | null;
-  enableProxmoxStats?: boolean;
-  proxmoxStatsConfig?: ProxmoxStatsConfig | Record<string, unknown> | null;
-  showTerminalInSidebar?: boolean;
-  showFileManagerInSidebar?: boolean;
-  showTunnelInSidebar?: boolean;
-  showDockerInSidebar?: boolean;
-  showServerStatsInSidebar?: boolean;
-  defaultPath?: string;
   forceKeyboardInteractive?: boolean;
-  tunnelConnections?: TunnelConnection[];
   jumpHosts?: JumpHostData[];
   quickActions?: QuickActionData[];
-  statsConfig?: string | StatsConfig;
+  statusCheckEnabled?: boolean;
+  /** Seconds between status checks; null follows the global setting. */
+  statusCheckInterval?: number | null;
   terminalConfig?: Partial<TerminalConfig>;
   notes?: string;
 
@@ -411,37 +229,22 @@ export interface HostData {
   socks5Password?: string;
   socks5ProxyChain?: ProxyNode[];
 
-  macAddress?: string;
-  wolBroadcastAddress?: string;
   portKnockSequence?: Array<{
     port: number;
     protocol?: "tcp" | "udp";
     delay?: number;
   }>;
 
-  connectionType?: "ssh" | "rdp" | "vnc" | "telnet";
+  /** "ssh", or the id of the plugin protocol a host without SSH uses. */
+  connectionType?: string;
   domain?: string;
-  security?: string;
-  ignoreCert?: boolean;
-  guacamoleConfig?: GuacamoleConfig | null;
-  dockerConfig?: Record<string, unknown> | null;
-  enableWebUi?: boolean;
-  webUiConfig?: WebUiConfig | null;
 
   enableSsh?: boolean;
-  enableRdp?: boolean;
-  enableVnc?: boolean;
-  enableTelnet?: boolean;
   sshPort?: number;
-  rdpPort?: number;
-  vncPort?: number;
-  telnetPort?: number;
   rdpCredentialId?: number | null;
   rdpUser?: string;
   rdpPassword?: string;
   rdpDomain?: string;
-  rdpSecurity?: string;
-  rdpIgnoreCert?: boolean;
   vncCredentialId?: number | null;
   vncPassword?: string;
   vncUser?: string;
@@ -451,6 +254,8 @@ export interface HostData {
   rdpAuthType?: "direct" | "credential" | "none" | null;
   vncAuthType?: "direct" | "credential" | null;
   telnetAuthType?: "direct" | "credential" | null;
+  /** Desktop only: kept on this device, never synced to the server. */
+  localOnly?: boolean;
 }
 
 export type SSHHost = Host;
@@ -464,6 +269,8 @@ export interface SSHFolder {
   icon?: string;
   credentialId?: number | null;
   sortOrder?: number | null;
+  /** Desktop only: the folder and its hosts stay on this device. */
+  localOnly?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -519,145 +326,12 @@ export interface CredentialBackend {
   updatedAt: string;
 }
 
-export interface CredentialData {
-  name: string;
-  description?: string;
-  folder?: string;
-  tags: string[];
-  authType: "password" | "key";
-  username?: string;
-  password?: string;
-  key?: string;
-  publicKey?: string;
-  /** CA-signed certificate file content (e.g. id_ed25519-cert.pub) */
-  certPublicKey?: string | null;
-  keyPassword?: string;
-  keyType?: string;
-}
-
 // ============================================================================
 // TUNNEL TYPES
 // ============================================================================
 
 export type TunnelScope = "s2s" | "c2s";
 export type TunnelMode = "local" | "remote" | "dynamic";
-
-export interface TunnelConnection {
-  scope?: TunnelScope;
-  mode?: TunnelMode;
-  tunnelType?: "local" | "remote";
-  localAddress?: string;
-  remoteAddress?: string;
-  bindHost?: string;
-  sourceHostId?: number;
-  sourceHostSyncId?: string;
-  sourceHostName?: string;
-  sourcePort: number;
-  endpointPort: number;
-  endpointHost?: string;
-  targetHost?: string;
-
-  endpointPassword?: string;
-  endpointKey?: string;
-  endpointKeyPassword?: string;
-  endpointAuthType?: string;
-  endpointKeyType?: string;
-
-  maxRetries: number;
-  retryInterval: number;
-  autoStart: boolean;
-}
-
-export interface TunnelConfig {
-  name: string;
-  scope?: TunnelScope;
-  mode?: TunnelMode;
-  tunnelType?: "local" | "remote";
-  localAddress?: string;
-  remoteAddress?: string;
-  bindHost?: string;
-  targetHost?: string;
-
-  sourceHostId: number;
-  sourceHostSyncId?: string;
-  tunnelIndex: number;
-
-  requestingUserId?: string;
-
-  hostName: string;
-  sourceIP: string;
-  sourceSSHPort: number;
-  sourceUsername: string;
-  sourcePassword?: string;
-  sourceAuthMethod: string;
-  sourceSSHKey?: string;
-  sourceKeyPassword?: string;
-  sourceKeyType?: string;
-  sourceCredentialId?: number;
-  sourceUserId?: string;
-  endpointIP: string;
-  endpointSSHPort: number;
-  endpointUsername: string;
-  endpointHost: string;
-  endpointPassword?: string;
-  endpointAuthMethod: string;
-  endpointSSHKey?: string;
-  endpointKeyPassword?: string;
-  endpointKeyType?: string;
-  endpointCredentialId?: number;
-  endpointUserId?: string;
-  sourcePort: number;
-  endpointPort: number;
-  maxRetries: number;
-  retryInterval: number;
-  autoStart: boolean;
-  isPinned: boolean;
-
-  useSocks5?: boolean;
-  socks5Host?: string;
-  socks5Port?: number;
-  socks5Username?: string;
-  socks5Password?: string;
-  socks5ProxyChain?: ProxyNode[];
-
-  keepaliveInterval?: number;
-  keepaliveCountMax?: number;
-  /**
-   * When set, the tunnel closes itself once it has had no connected sockets
-   * for this long. Used by web endpoint tunnels, which are opened on demand
-   * and must not outlive their tab.
-   */
-  idleTimeoutMs?: number;
-}
-
-export interface C2STunnelPreset {
-  id: number;
-  userId: string;
-  name: string;
-  config: TunnelConnection[];
-  platform?: string | null;
-  computerName?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TunnelStatus {
-  connected: boolean;
-  status: ConnectionState;
-  retryCount?: number;
-  maxRetries?: number;
-  nextRetryIn?: number;
-  reason?: string;
-  errorType?: ErrorType;
-  manualDisconnect?: boolean;
-  retryExhausted?: boolean;
-  connectionLogs?: Array<{
-    type: "info" | "success" | "warning" | "error";
-    stage: string;
-    message: string;
-    details?: Record<string, unknown>;
-  }>;
-}
 
 // ============================================================================
 // FILE MANAGER TYPES
@@ -673,76 +347,6 @@ export interface Tab {
   filePath?: string;
   loading?: boolean;
   dirty?: boolean;
-}
-
-export interface FileManagerFile {
-  name: string;
-  path: string;
-  type?: "file" | "directory";
-  isSSH?: boolean;
-  sshSessionId?: string;
-}
-
-export interface FileManagerShortcut {
-  name: string;
-  path: string;
-}
-
-export interface FileItem {
-  name: string;
-  path: string;
-  isPinned?: boolean;
-  type: "file" | "directory" | "link";
-  sshSessionId?: string;
-  size?: number;
-  modified?: string;
-  modifiedTimestamp?: number;
-  permissions?: string;
-  owner?: string;
-  group?: string;
-  linkTarget?: string;
-  executable?: boolean;
-}
-
-export interface ShortcutItem {
-  name: string;
-  path: string;
-}
-
-export interface SSHConnection {
-  id: number;
-  name: string;
-  ip: string;
-  port: number;
-  username: string;
-  isPinned?: boolean;
-}
-
-// ============================================================================
-// HOST INFO TYPES
-// ============================================================================
-
-export interface HostInfo {
-  id: number;
-  name?: string;
-  ip: string;
-  port: number;
-  createdAt: string;
-}
-
-// ============================================================================
-// ALERT TYPES
-// ============================================================================
-
-export interface TermixAlert {
-  id: string;
-  title: string;
-  message: string;
-  expiresAt: string;
-  priority?: "low" | "medium" | "high" | "critical";
-  type?: "info" | "warning" | "error" | "success";
-  actionUrl?: string;
-  actionText?: string;
 }
 
 // ============================================================================
@@ -827,21 +431,8 @@ export interface TerminalConfig {
 export interface TabContextTab {
   id: number;
   instanceId?: string;
-  type:
-    | "home"
-    | "terminal"
-    | "ssh_manager"
-    | "server_stats"
-    | "admin"
-    | "file_manager"
-    | "user_profile"
-    | "docker"
-    | "tunnel"
-    | "network_graph"
-    | "tmux_monitor" // --- tmux-monitor ---
-    | "rdp"
-    | "vnc"
-    | "telnet";
+  /** A core tab type or one a plugin registered. */
+  type: string;
   title: string;
   hostConfig?: SSHHost;
   terminalRef?: RefObject<TerminalRefHandle | null>;
@@ -863,215 +454,6 @@ export interface TerminalRefHandle {
 }
 
 export type SplitLayout = "2h" | "2v" | "3l" | "3r" | "3t" | "4grid";
-
-export interface SplitConfiguration {
-  layout: SplitLayout;
-  positions: Map<number, number>;
-}
-
-export interface SplitLayoutOption {
-  id: SplitLayout;
-  name: string;
-  description: string;
-  cellCount: number;
-  icon: string;
-}
-
-// ============================================================================
-// CONNECTION STATES
-// ============================================================================
-
-export const CONNECTION_STATES = {
-  DISCONNECTED: "disconnected",
-  CONNECTING: "connecting",
-  CONNECTED: "connected",
-  VERIFYING: "verifying",
-  FAILED: "failed",
-  UNSTABLE: "unstable",
-  RETRYING: "retrying",
-  WAITING: "waiting",
-  DISCONNECTING: "disconnecting",
-} as const;
-
-export type ConnectionState =
-  (typeof CONNECTION_STATES)[keyof typeof CONNECTION_STATES];
-
-export type ErrorType =
-  | "CONNECTION_FAILED"
-  | "AUTHENTICATION_FAILED"
-  | "TIMEOUT"
-  | "NETWORK_ERROR"
-  | "UNKNOWN";
-
-// ============================================================================
-// AUTHENTICATION TYPES
-// ============================================================================
-
-export type AuthType =
-  | "password"
-  | "key"
-  | "credential"
-  | "none"
-  | "opkssh"
-  | "stepca"
-  | "tailscale";
-
-export type KeyType = "rsa" | "ecdsa" | "ed25519";
-
-// ============================================================================
-// API RESPONSE TYPES
-// ============================================================================
-
-export interface ApiResponse<T = unknown> {
-  data?: T;
-  error?: string;
-  message?: string;
-  status?: number;
-}
-
-// ============================================================================
-// COMPONENT PROP TYPES
-// ============================================================================
-
-export interface CredentialsManagerProps {
-  onEditCredential?: (credential: Credential) => void;
-  onAddCredential?: () => void;
-}
-
-export interface CredentialEditorProps {
-  editingCredential?: Credential | null;
-  onFormSubmit?: () => void;
-  onBack?: () => void;
-}
-
-export interface CredentialViewerProps {
-  credential: Credential;
-  onClose: () => void;
-  onEdit: () => void;
-}
-
-export interface CredentialSelectorProps {
-  value?: number | null;
-  onValueChange: (value: number | null) => void;
-}
-
-export interface HostManagerProps {
-  onSelectView?: (view: string) => void;
-  isTopbarOpen?: boolean;
-  initialTab?: string;
-  hostConfig?: SSHHost;
-  _updateTimestamp?: number;
-  rightSidebarOpen?: boolean;
-  rightSidebarWidth?: number;
-  currentTabId?: number;
-  updateTab?: (tabId: number, updates: Partial<Omit<Tab, "id">>) => void;
-}
-
-export interface SSHManagerHostEditorProps {
-  editingHost?: SSHHost | null;
-  onFormSubmit?: () => void;
-}
-
-export interface SSHManagerHostViewerProps {
-  onEditHost?: (host: SSHHost) => void;
-  onAddHost?: () => void;
-}
-
-export interface HostProps {
-  host: SSHHost;
-  onHostConnect?: () => void;
-}
-
-export interface SSHTunnelProps {
-  filterHostKey?: string;
-}
-
-export interface SSHTunnelViewerProps {
-  hosts?: SSHHost[];
-  tunnelStatuses?: Record<string, TunnelStatus>;
-  tunnelActions?: Record<
-    string,
-    (
-      action: "connect" | "disconnect" | "cancel",
-      host: SSHHost,
-      tunnelIndex: number,
-    ) => Promise<void>
-  >;
-  onTunnelAction?: (
-    action: "connect" | "disconnect" | "cancel",
-    host: SSHHost,
-    tunnelIndex: number,
-  ) => Promise<void>;
-}
-
-export interface FileManagerProps {
-  onSelectView?: (view: string) => void;
-  embedded?: boolean;
-  initialHost?: SSHHost | null;
-}
-
-export interface AlertCardProps {
-  alert: TermixAlert;
-  onDismiss: (alertId: string) => void;
-}
-
-export interface AlertManagerProps {
-  alerts: TermixAlert[];
-  onDismiss: (alertId: string) => void;
-  loggedIn: boolean;
-}
-
-export interface SSHTunnelObjectProps {
-  host: SSHHost;
-  tunnelIndex?: number;
-  tunnelStatuses: Record<string, TunnelStatus>;
-  tunnelActions: Record<string, boolean>;
-  onTunnelAction: (
-    action: "connect" | "disconnect" | "cancel",
-    host: SSHHost,
-    tunnelIndex: number,
-  ) => Promise<void>;
-  compact?: boolean;
-  bare?: boolean;
-}
-
-export interface FolderStats {
-  totalHosts: number;
-  hostsByType: Array<{
-    type: string;
-    count: number;
-  }>;
-}
-
-// Snippet, SnippetFolder types live in ui-types.ts (the shape actually used
-// by SnippetsPanel.tsx); this file's older definitions were unused and removed.
-
-// ============================================================================
-// BACKEND TYPES
-// ============================================================================
-
-export interface HostConfig {
-  host: SSHHost;
-  tunnels: TunnelConfig[];
-}
-
-export interface VerificationData {
-  conn: Client;
-  timeout: NodeJS.Timeout;
-  startTime: number;
-  attempts: number;
-  maxAttempts: number;
-}
-
-// ============================================================================
-// UTILITY TYPES
-// ============================================================================
-
-export type Optional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
-
-export type RequiredFields<T, K extends keyof T> = T & Required<Pick<T, K>>;
-
-export type PartialExcept<T, K extends keyof T> = Partial<T> & Pick<T, K>;
 
 // ============================================================================
 // EXPRESS REQUEST TYPES
@@ -1137,86 +519,13 @@ export interface CacheEntry<T = unknown> {
 export interface ExportSummary {
   sshHostsImported: number;
   sshCredentialsImported: number;
-  fileManagerItemsImported: number;
-  dismissedAlertsImported: number;
+  pluginItemsImported: number;
   credentialUsageImported: number;
   settingsImported: number;
   skippedItems: number;
   errors: string[];
 }
 
-export interface ImportResult {
-  success: boolean;
-  summary: ExportSummary;
-}
-
-export interface ExportRequestBody {
-  password: string;
-}
-
-export interface ImportRequestBody {
-  password: string;
-}
-
-export interface ExportPreviewBody {
-  scope?: string;
-  includeCredentials?: boolean;
-}
-
-export interface RestoreRequestBody {
-  backupPath: string;
-  targetPath?: string;
-}
-
 // ============================================================================
 // DOCKER TYPES
 // ============================================================================
-
-export interface DockerContainer {
-  id: string;
-  name: string;
-  image: string;
-  status: string;
-  state:
-    | "created"
-    | "running"
-    | "paused"
-    | "restarting"
-    | "removing"
-    | "exited"
-    | "dead";
-  ports: string;
-  created: string;
-  command?: string;
-  labels?: Record<string, string>;
-  networks?: string[];
-  mounts?: string[];
-}
-
-export interface DockerStats {
-  cpu: string;
-  memoryUsed: string;
-  memoryLimit: string;
-  memoryPercent: string;
-  netInput: string;
-  netOutput: string;
-  blockRead: string;
-  blockWrite: string;
-  pids?: string;
-}
-
-export interface DockerLogOptions {
-  tail?: number;
-  timestamps?: boolean;
-  since?: string;
-  until?: string;
-  follow?: boolean;
-}
-
-export interface DockerValidation {
-  available: boolean;
-  version?: string;
-  runtime?: "docker" | "podman";
-  error?: string;
-  code?: string;
-}

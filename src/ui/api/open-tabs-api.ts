@@ -2,6 +2,9 @@ import { authApi } from "@/main-axios";
 import { createTtlRequestCache } from "@/lib/ttl-request-cache";
 import type { TerminalTheme } from "@/lib/terminal-themes";
 import type { CustomKeybinding } from "@/types/keybindings";
+import { invokeAction, isActionRegistered } from "@/shell/action-registry";
+
+const SHARED_WITH_ME_ACTION = "sessions.sharedWithMe";
 
 // OPEN TABS API
 // ============================================================================
@@ -84,11 +87,28 @@ export async function addOpenTab(tab: OpenTabUpsertPayload): Promise<void> {
   await authApi.post("/open-tabs", tab);
 }
 
+/**
+ * The caller's live sessions, plus sessions other users shared with them,
+ * which the session sharing plugin answers through an action (none while it
+ * is off).
+ */
 export async function getActiveSessions(): Promise<ActiveSessionInfo[]> {
   return activeSessionsCache.get(async () => {
-    const response = await authApi.get("/open-tabs/active-sessions");
-    return Array.isArray(response.data) ? response.data : [];
+    const [response, shared] = await Promise.all([
+      authApi.get("/open-tabs/active-sessions"),
+      isActionRegistered(SHARED_WITH_ME_ACTION)
+        ? invokeAction(SHARED_WITH_ME_ACTION).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+    const own = Array.isArray(response.data) ? response.data : [];
+    return Array.isArray(shared) ? [...own, ...shared] : own;
   });
+}
+
+/** How long a detached terminal session is kept, in minutes. */
+export async function getSessionTimeoutMinutes(): Promise<number> {
+  const response = await authApi.get("/open-tabs/session-timeout");
+  return Number(response.data?.minutes) || 30;
 }
 
 // ============================================================================
@@ -115,19 +135,15 @@ export interface UserPreferences {
   pinAppRail?: boolean | null;
   expandAppRailOnHover?: boolean | null;
   showPinAppRailButton?: boolean | null;
-  foldersCollapsed?: boolean | null;
   confirmSnippetExecution?: boolean | null;
   disableUpdateCheck?: boolean | null;
   confirmTabClose?: boolean | null;
   hiddenRailTabs?: string | null;
-  aiAssistantEnabled?: boolean | null;
-  aiReadOnlyCommands?: boolean | null;
   compactHostView?: boolean | null;
   statusColorScheme?: string | null;
   customThemes?: string | null;
   customKeybindings?: string | null;
   terminalDefaults?: string | null;
-  rdpDefaults?: string | null;
   terminalMacros?: string | null;
 }
 
@@ -153,9 +169,19 @@ export function parseCustomKeybindings(
   }
 }
 
+const userPreferencesCache = createTtlRequestCache<UserPreferences>(10_000);
+
+/**
+ * Cached briefly so the loading gate's prefetch and the shell's own read on
+ * mount share one request instead of two, which is what let stale
+ * localStorage flags (hiddenRailTabs, pinAppRail) flash before the real
+ * values landed a moment after the shell first rendered.
+ */
 export async function getUserPreferences(): Promise<UserPreferences> {
-  const response = await authApi.get("/user-preferences");
-  return response.data;
+  return userPreferencesCache.get(async () => {
+    const response = await authApi.get("/user-preferences");
+    return response.data;
+  });
 }
 
 export async function saveUserPreferences(

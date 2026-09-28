@@ -49,13 +49,8 @@ export type LocalPathMutationResult =
 
 export interface ElectronAPI {
   getAppVersion: () => Promise<string>;
+  setZoomFactor?: (factor: number) => void;
   getPlatform: () => Promise<string>;
-  openNativeRdp: (options: {
-    host: string;
-    port?: number;
-    username?: string;
-    domain?: string;
-  }) => Promise<{ success: boolean; error?: string }>;
   getSetting?: (key: string) => Promise<string | null | undefined>;
   setSetting?: (key: string, value: string) => Promise<void>;
 
@@ -106,15 +101,6 @@ export interface ElectronAPI {
     started: number;
     errors: string[];
   }>;
-  onRemoteSyncStatusChanged?: (
-    callback: (status: {
-      connected: boolean;
-      syncing: boolean;
-      lastSyncedAt: string | null;
-      lastError: string | null;
-      needsReauth: boolean;
-    }) => void,
-  ) => () => void;
   onCloseActiveTab?: (callback: () => void) => () => void;
   clearSessionCookies: () => Promise<void>;
   getSessionCookie: (

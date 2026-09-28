@@ -5,7 +5,8 @@ import {
   getUserPreferences,
   parseCustomKeybindings,
 } from "@/api/open-tabs-api";
-import { saveUserPreferences, getSnippets } from "@/main-axios";
+import { saveUserPreferences } from "@/main-axios";
+import { listSnippets } from "@/lib/snippet-provider";
 import { BUILT_IN_DEFAULTS } from "@/lib/default-keybindings";
 import type {
   CustomKeybinding,
@@ -47,6 +48,7 @@ const ACTION_LABEL_KEYS: Record<KeybindingActionType, string> = {
   nextTab: "newUi.sidebar.keybindings.actionNextTab",
   previousTab: "newUi.sidebar.keybindings.actionPreviousTab",
   openCommandPalette: "newUi.sidebar.keybindings.actionOpenCommandPalette",
+  reconnectSession: "newUi.sidebar.keybindings.actionReconnectSession",
 };
 
 function generateId(): string {
@@ -86,7 +88,7 @@ export function KeybindingsDialog({
     setLoading(true);
     Promise.all([
       getUserPreferences().catch(() => null),
-      getSnippets().catch(() => []),
+      listSnippets().catch(() => []),
     ])
       .then(([prefs, snippetList]) => {
         setBindings(
@@ -509,6 +511,9 @@ export function KeybindingsDialog({
                 </option>
                 <option value="openCommandPalette">
                   {t("newUi.sidebar.keybindings.actionOpenCommandPalette")}
+                </option>
+                <option value="reconnectSession">
+                  {t("newUi.sidebar.keybindings.actionReconnectSession")}
                 </option>
               </select>
               {actionType === "paste" && (

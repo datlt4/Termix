@@ -74,44 +74,16 @@ export function sshHostToHost(h: SSHHostWithStatus): Host {
     keyPassword: h.keyPassword,
     keyType: h.keyType,
     credentialId: h.credentialId != null ? String(h.credentialId) : undefined,
-    vaultProfileId:
-      (h as { vaultProfileId?: number | string | null }).vaultProfileId != null
-        ? String((h as { vaultProfileId?: number | string }).vaultProfileId)
-        : undefined,
     notes: h.notes,
     pin: h.pin ?? false,
     sortOrder: h.sortOrder ?? null,
-    macAddress: h.macAddress,
-    wolBroadcastAddress: h.wolBroadcastAddress,
     connectionOrigin: h.connectionOrigin ?? null,
+    localOnly: !!h.localOnly,
+    sharedCopy: !!h.sharedCopy,
     enableSsh: h.enableSsh != null ? h.enableSsh : isSshHost,
-    enableTerminal:
-      h.enableTerminal ?? (h.enableSsh != null ? h.enableSsh : isSshHost),
-    enableSessionLogging: h.enableSessionLogging ?? true,
-    enableCommandHistory: h.enableCommandHistory ?? true,
-    enableTunnel: h.enableTunnel ?? false,
-    enableFileManager: h.enableFileManager ?? true,
-    enableDocker: h.enableDocker ?? false,
-    dockerConfig: h.dockerConfig ?? null,
-    enableWebUi: h.enableWebUi ?? false,
-    webUiConfig: h.webUiConfig ?? { endpoints: [] },
-    enableProxmox: h.enableProxmox ?? false,
-    enableProxmoxStats: h.enableProxmoxStats ?? false,
-    enableTmuxMonitor: h.enableTmuxMonitor ?? false,
-    enableTerminalToolbar: h.enableTerminalToolbar ?? true,
-    enableAiAssistant: h.enableAiAssistant ?? false,
-    proxmoxConfig: h.proxmoxConfig ?? null,
-    proxmoxStatsConfig: h.proxmoxStatsConfig ?? null,
-    enableRdp: h.enableRdp != null ? h.enableRdp : h.connectionType === "rdp",
-    enableVnc: h.enableVnc != null ? h.enableVnc : h.connectionType === "vnc",
-    enableTelnet:
-      h.enableTelnet != null ? h.enableTelnet : h.connectionType === "telnet",
     sshPort:
       h.sshPort ??
       (h.connectionType === "ssh" || !h.connectionType ? h.port : 22),
-    rdpPort: h.rdpPort ?? (h.connectionType === "rdp" ? h.port : 3389),
-    vncPort: h.vncPort ?? (h.connectionType === "vnc" ? h.port : 5900),
-    telnetPort: h.telnetPort ?? (h.connectionType === "telnet" ? h.port : 23),
     rdpAuthType:
       (h.rdpAuthType as "direct" | "credential") ??
       (h.rdpCredentialId ? "credential" : "direct"),
@@ -121,8 +93,6 @@ export function sshHostToHost(h: SSHHostWithStatus): Host {
     rdpPassword: h.rdpPassword ?? "",
     hasRdpPassword: !!host.hasRdpPassword || !!h.rdpPassword,
     domain: h.rdpDomain,
-    security: h.rdpSecurity,
-    ignoreCert: h.rdpIgnoreCert ?? false,
     vncAuthType:
       (h.vncAuthType as "direct" | "credential") ??
       (h.vncCredentialId ? "credential" : "direct"),
@@ -143,17 +113,15 @@ export function sshHostToHost(h: SSHHostWithStatus): Host {
       name: a.name,
       snippetId: String(a.snippetId),
     })),
-    serverTunnels: parseJson(h.tunnelConnections) ?? [],
     jumpHosts: (parseJson<HostJumpHost[]>(h.jumpHosts) ?? []).map((j) => ({
       hostId: String(j.hostId ?? j.hostid ?? j),
     })),
     portKnockSequence: parseJson(h.portKnockSequence) ?? [],
-    defaultPath: h.defaultPath,
     terminalConfig: parsedTerminalConfig as Host["terminalConfig"],
     hasSudoPassword:
       !!host.hasSudoPassword || !!parsedTerminalConfig?.sudoPassword,
-    statsConfig: parseJson(h.statsConfig) as Host["statsConfig"],
-    guacamoleConfig: parseJson(h.guacamoleConfig),
+    statusCheckEnabled: h.statusCheckEnabled !== false,
+    statusCheckInterval: h.statusCheckInterval ?? null,
     forceKeyboardInteractive: h.forceKeyboardInteractive ?? false,
     useSocks5: h.useSocks5,
     socks5Host: h.socks5Host,

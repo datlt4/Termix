@@ -3,7 +3,6 @@ import { findUsableCredential } from "./usable-credential.js";
 import { resolveExternalSecretRefs } from "./external-secrets.js";
 import {
   createCurrentHostResolutionRepository,
-  createCurrentVaultProfileRepository,
   createCurrentUserRepository,
 } from "../database/repositories/factory.js";
 import type { HostResolutionHostRecord } from "../database/repositories/host-resolution-repository.js";
@@ -16,7 +15,6 @@ import {
   expandOidcUsername,
 } from "./credential-username.js";
 import type { SSHHost } from "../../types/index.js";
-import type { HostAction } from "../utils/permission-manager.js";
 
 const sshLogger = logger;
 
@@ -108,20 +106,6 @@ export async function resolveHostById(
       host.jumpHosts = JSON.parse(host.jumpHosts as string);
     } catch {
       host.jumpHosts = [];
-    }
-  }
-  if (typeof host.tunnelConnections === "string") {
-    try {
-      host.tunnelConnections = JSON.parse(host.tunnelConnections as string);
-    } catch {
-      host.tunnelConnections = [];
-    }
-  }
-  if (typeof host.statsConfig === "string" && host.statsConfig) {
-    try {
-      host.statsConfig = JSON.parse(host.statsConfig as string);
-    } catch {
-      host.statsConfig = undefined;
     }
   }
   if (typeof host.terminalConfig === "string" && host.terminalConfig) {
@@ -239,24 +223,19 @@ export async function resolveHostById(
     sharedAuthResolution === "recipient-override" ? userId : ownerId,
   );
 
-  // Resolve a Vault SSH signer profile (shared settings, no secrets). The
-  // certificate itself is obtained per-user at connect time via Vault OIDC.
-  if (host.vaultProfileId && sharedAuthResolution !== "recipient-override") {
-    try {
-      const profile = await createCurrentVaultProfileRepository().findById(
-        host.vaultProfileId as number,
-      );
-      if (profile) {
-        (host as Record<string, unknown>).vaultProfile = profile;
-        host.authType = "vault";
-      }
-    } catch (e) {
-      sshLogger.warn("Failed to resolve vault profile for host", {
-        operation: "host_resolver_vault_profile",
-        hostId,
-        error: getErrorMessage(e, "Unknown"),
-      });
-    }
+  // Keyboard-interactive handlers run synchronously mid-handshake and can
+  // only read their host settings from here.
+  try {
+    const { loadHostPluginSettings } =
+      await import("../database/routes/host-plugin-settings.js");
+    const settings = (await loadHostPluginSettings([hostId])).get(hostId);
+    if (settings) host.pluginSettings = settings;
+  } catch (e) {
+    sshLogger.warn("Failed to load plugin settings for host", {
+      operation: "host_resolver_plugin_settings",
+      hostId,
+      error: getErrorMessage(e, "Unknown"),
+    });
   }
 
   return host as unknown as SSHHost;
@@ -335,30 +314,4 @@ async function resolveRecipientSshAuth(
   }
 
   return null;
-}
-
-/**
- * Check if a user has access to a host (owner or shared access).
- */
-export async function checkHostAccess(
-  hostId: number,
-  userId: string,
-  hostUserId: string,
-  requiredPermission: HostAction = "connect",
-): Promise<boolean> {
-  if (userId === hostUserId) return true;
-
-  try {
-    const { PermissionManager } =
-      await import("../utils/permission-manager.js");
-    const permissionManager = PermissionManager.getInstance();
-    const accessInfo = await permissionManager.canAccessHost(
-      userId,
-      hostId,
-      requiredPermission,
-    );
-    return accessInfo.hasAccess;
-  } catch {
-    return false;
-  }
 }

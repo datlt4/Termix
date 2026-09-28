@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { registerHostProtocol } from "../../sidebar/host-protocols";
 import {
+  applyHostDraft,
   createHostEditorForm,
   buildHostEditorPayload,
   omitOwnerSshAuthFromSharedEdit,
@@ -49,7 +51,6 @@ describe("omitOwnerSshAuthFromSharedEdit", () => {
         key: "owner-key",
         keyPassword: "owner-passphrase",
         keyType: "ssh-ed25519",
-        vaultProfileId: "9",
         overrideCredentialUsername: true,
         shareSshAuth: true,
         sudoPassword: "owner-sudo",
@@ -69,7 +70,6 @@ describe("omitOwnerSshAuthFromSharedEdit", () => {
     for (const field of [
       "authType",
       "credentialId",
-      "vaultProfileId",
       "overrideCredentialUsername",
       "shareSshAuth",
       "password",
@@ -125,32 +125,6 @@ describe("buildHostEditorPayload auth field isolation", () => {
 
     expect(payload.credentialId).toBeNull();
     expect(payload.password).toBe("newpass");
-  });
-
-  it("drops the vaultProfileId when switching a host away from vault auth", () => {
-    const form = {
-      ...createHostEditorForm(null),
-      authType: "password" as const,
-      password: "newpass",
-      vaultProfileId: "9",
-    };
-
-    const payload = buildHostEditorPayload(form, sshOnly);
-
-    expect(payload.vaultProfileId).toBeNull();
-    expect(payload.password).toBe("newpass");
-  });
-
-  it("sends vaultProfileId when authType is vault", () => {
-    const form = {
-      ...createHostEditorForm(null),
-      authType: "vault" as const,
-      vaultProfileId: "9",
-    };
-
-    const payload = buildHostEditorPayload(form, sshOnly);
-
-    expect(payload.vaultProfileId).toBe(9);
   });
 
   it("sends credentialId and optional password when authType is credential", () => {
@@ -361,127 +335,18 @@ describe("sudo password persistence indicator", () => {
   });
 });
 
-describe("Proxmox / Proxmox Stats independent toggles", () => {
-  it("defaults enableProxmoxStats to false with sane pollInterval/nodeName defaults", () => {
-    const form = createHostEditorForm(null);
-
-    expect(form.enableProxmoxStats).toBe(false);
-    expect(form.proxmoxStatsConfig).toEqual({
-      pollInterval: 60,
-      nodeName: null,
-    });
-    expect(form.enableProxmox).toBe(false);
-  });
-
-  it("seeds both configs independently from an existing host", () => {
+describe("plugin host settings", () => {
+  it("keeps them on the form and out of the host payload", () => {
     const host = {
-      enableProxmox: true,
-      proxmoxConfig: { windowsPatterns: "win", dockerPatterns: "docker" },
-      enableProxmoxStats: true,
-      proxmoxStatsConfig: { pollInterval: 30, nodeName: "pve-custom" },
+      pluginSettings: { proxmox: { enableProxmox: true } },
     } as unknown as Host;
 
     const form = createHostEditorForm(host);
-
-    expect(form.enableProxmox).toBe(true);
-    expect(form.enableProxmoxStats).toBe(true);
-    expect(form.proxmoxStatsConfig).toEqual({
-      pollInterval: 30,
-      nodeName: "pve-custom",
-    });
-  });
-
-  it("nulls proxmoxStatsConfig in the payload when enableProxmoxStats is off, regardless of enableProxmox", () => {
-    const form = {
-      ...createHostEditorForm(null),
-      enableProxmox: true,
-      proxmoxConfig: {
-        defaultCredentialId: null,
-        defaultAuthType: "password",
-        windowsPatterns: "win",
-        dockerPatterns: "docker",
-        preferredPrefixes: "",
-      },
-      enableProxmoxStats: false,
-      proxmoxStatsConfig: { pollInterval: 45, nodeName: "leftover" },
-    };
-
     const payload = buildHostEditorPayload(form, sshOnly);
 
-    expect(payload.enableProxmox).toBe(true);
-    expect(payload.proxmoxConfig).not.toBeNull();
-    expect(payload.enableProxmoxStats).toBe(false);
-    expect(payload.proxmoxStatsConfig).toBeNull();
-  });
-
-  it("keeps proxmoxConfig null in the payload when enableProxmox is off, even though enableProxmoxStats is on", () => {
-    const form = {
-      ...createHostEditorForm(null),
-      enableProxmox: false,
-      enableProxmoxStats: true,
-      proxmoxStatsConfig: { pollInterval: 90, nodeName: "pve1" },
-    };
-
-    const payload = buildHostEditorPayload(form, sshOnly);
-
-    expect(payload.enableProxmox).toBe(false);
-    expect(payload.proxmoxConfig).toBeNull();
-    expect(payload.enableProxmoxStats).toBe(true);
-    expect(payload.proxmoxStatsConfig).toEqual({
-      pollInterval: 90,
-      nodeName: "pve1",
-    });
-  });
-
-  it("preserves the source identity when editing an imported Proxmox guest", () => {
-    const source = {
-      source: "proxmox" as const,
-      sourceHostId: 7,
-      node: "pve1",
-      vmid: 101,
-      type: "qemu" as const,
-      lastSeenAt: "2026-08-14T00:00:00.000Z",
-      lastStatus: "running",
-      missingSince: null,
-    };
-    const form = {
-      ...createHostEditorForm({
-        enableProxmox: false,
-        proxmoxConfig: { source },
-      } as unknown as Host),
-      name: "Edited guest",
-    };
-
-    const payload = buildHostEditorPayload(form, sshOnly);
-
-    expect(payload.enableProxmox).toBe(false);
-    expect(payload.proxmoxConfig).toEqual({ source });
-  });
-
-  it("sends both configs when both toggles are on", () => {
-    const form = {
-      ...createHostEditorForm(null),
-      enableProxmox: true,
-      proxmoxConfig: {
-        defaultCredentialId: null,
-        defaultAuthType: "password",
-        windowsPatterns: "win",
-        dockerPatterns: "docker",
-        preferredPrefixes: "",
-      },
-      enableProxmoxStats: true,
-      proxmoxStatsConfig: { pollInterval: 60, nodeName: null },
-    };
-
-    const payload = buildHostEditorPayload(form, sshOnly);
-
-    expect(payload.enableProxmox).toBe(true);
-    expect(payload.proxmoxConfig).not.toBeNull();
-    expect(payload.enableProxmoxStats).toBe(true);
-    expect(payload.proxmoxStatsConfig).toEqual({
-      pollInterval: 60,
-      nodeName: null,
-    });
+    expect(form.pluginSettings).toEqual({ proxmox: { enableProxmox: true } });
+    expect(payload).not.toHaveProperty("enableProxmox");
+    expect(payload).not.toHaveProperty("pluginSettings");
   });
 });
 
@@ -560,53 +425,36 @@ describe("RDP/VNC/Telnet password persistence indicator", () => {
 describe("user connection defaults", () => {
   const defaults = {
     terminal: { fontSize: 18, cursorBlink: false },
-    rdp: { colorDepth: 24, disableCopy: true },
   };
 
   it("shows inherited values without persisting them as host overrides", () => {
     const host = {
       enableSsh: true,
-      enableRdp: true,
       terminalConfig: { autoTmux: true },
-      guacamoleConfig: { enableAudioInput: true },
-    } as Host;
+    } as unknown as Host;
     const form = createHostEditorForm(host, undefined, defaults);
 
     expect(form).toMatchObject({
       fontSize: 18,
       cursorBlink: false,
       inheritTerminalAppearance: true,
-      inheritRemoteDesktopDefaults: true,
-      guacamoleConfig: {
-        colorDepth: 24,
-        disableCopy: true,
-        enableAudioInput: true,
-      },
     });
 
-    const payload = buildHostEditorPayload(form, {
-      ...sshOnly,
-      enableRdp: true,
-    });
+    const payload = buildHostEditorPayload(form, sshOnly);
     expect(payload.terminalConfig).toMatchObject({ autoTmux: true });
     expect(payload.terminalConfig).not.toHaveProperty("fontSize");
-    expect(payload.guacamoleConfig).toEqual({ enableAudioInput: true });
   });
 
   it("keeps explicit host overrides above user defaults", () => {
     const host = {
       enableSsh: true,
-      enableRdp: true,
       terminalConfig: { fontSize: 12 },
-      guacamoleConfig: { colorDepth: 32 },
-    } as Host;
+    } as unknown as Host;
     const form = createHostEditorForm(host, undefined, defaults);
 
     expect(form).toMatchObject({
       fontSize: 12,
       inheritTerminalAppearance: false,
-      inheritRemoteDesktopDefaults: false,
-      guacamoleConfig: { colorDepth: 32, disableCopy: true },
     });
   });
 });
@@ -684,5 +532,55 @@ describe("macOS Option character defaults", () => {
   it("preserves an explicitly saved Meta preference", () => {
     const host = { terminalConfig: { macOptionIsMeta: true } } as Host;
     expect(createHostEditorForm(host).macOptionIsMeta).toBe(true);
+  });
+});
+
+describe("plugin protocols", () => {
+  it("uses the first protocol switched on as the host's type and port without SSH", () => {
+    const dispose = registerHostProtocol({
+      id: "demo-desktop",
+      pluginId: "demo",
+      settingKey: "enableDemo",
+      portKey: "demoPort",
+      defaultPort: 3389,
+      titleKey: "demo",
+      icon: () => null,
+    });
+    const form = {
+      ...createHostEditorForm(null),
+      pluginSettings: { demo: { demoPort: 3390 } },
+    };
+    const payload = buildHostEditorPayload(form, {
+      enableSsh: false,
+      enableDemo: true,
+    });
+    dispose();
+    expect(payload.connectionType).toBe("demo-desktop");
+    expect(payload.port).toBe(3390);
+    expect(payload.enableSsh).toBe(false);
+  });
+});
+
+describe("applyHostDraft", () => {
+  it("fills a new host's form from a plugin draft", () => {
+    const form = applyHostDraft(createHostEditorForm(null), {
+      name: "box",
+      ip: "100.64.0.1",
+      port: 2222,
+      username: "luke",
+      authType: "tailscale",
+    });
+    expect(form).toMatchObject({
+      name: "box",
+      ip: "100.64.0.1",
+      sshPort: 2222,
+      username: "luke",
+      authType: "tailscale",
+    });
+  });
+
+  it("leaves the form alone without a draft", () => {
+    const form = createHostEditorForm(null);
+    expect(applyHostDraft(form, undefined)).toBe(form);
   });
 });

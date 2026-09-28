@@ -27,20 +27,21 @@ import {
   Minimize2,
   FolderOpen,
   PanelRight,
-  Share2,
 } from "lucide-react";
 import { tabIcon } from "@/shell/tabUtils";
+import { isSessionTabType } from "@/shell/tab-registry";
 import { isElectron } from "@/lib/electron";
 import type { Tab, TabType, SplitMode } from "@/types/ui-types";
 import { SPLIT_MODES, PANE_COUNTS } from "@/lib/theme";
+import { ActionSlot } from "@/shell/ActionSlot";
 
-const CONNECTION_TAB_TYPES: TabType[] = [
-  "terminal",
-  "local-terminal",
-  "rdp",
-  "vnc",
-  "telnet",
-];
+/**
+ * Tabs holding a live connection that can be refreshed: the registered
+ * session tabs.
+ */
+function isConnectionTab(type: TabType): boolean {
+  return isSessionTabType(type);
+}
 
 export function TabBar({
   tabs,
@@ -57,11 +58,11 @@ export function TabBar({
   onRemoveFromSplit,
   onRenameTab,
   onOpenFileManager,
-  onOpenShare,
   isAppFullscreen,
   onToggleAppFullscreen,
   rightDockOpen,
   onToggleRightDock,
+  showTabNumbers,
 }: {
   tabs: Tab[];
   activeTabId: string;
@@ -77,11 +78,11 @@ export function TabBar({
   onRemoveFromSplit: (tabId: string) => void;
   onRenameTab?: (tabId: string, newLabel: string) => void;
   onOpenFileManager?: (tabId: string) => void;
-  onOpenShare?: (tabId: string) => void;
   isAppFullscreen: boolean;
   onToggleAppFullscreen: () => void;
   rightDockOpen?: boolean;
   onToggleRightDock?: () => void;
+  showTabNumbers?: boolean;
 }) {
   const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
@@ -422,6 +423,12 @@ export function TabBar({
                 {showInPaneIndicator && (
                   <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 size-1 rounded-full bg-muted-foreground/40 z-10" />
                 )}
+                {showTabNumbers && tab.type !== "dashboard" && (
+                  <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
+                    {tabs.slice(0, index).filter((t) => t.type !== "dashboard")
+                      .length + 1}
+                  </span>
+                )}
                 {tabIcon(tab.type)}
                 {tab.type !== "dashboard" && renamingTabId === tab.id ? (
                   <input
@@ -445,7 +452,7 @@ export function TabBar({
                   <div
                     className={`flex items-center gap-0.5 ml-1 ${active ? "opacity-100" : "opacity-0 group-hover/tab:opacity-100"}`}
                   >
-                    {CONNECTION_TAB_TYPES.includes(tab.type) && (
+                    {isConnectionTab(tab.type) && (
                       <button
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
@@ -456,19 +463,6 @@ export function TabBar({
                         className="flex items-center justify-center size-5 md:size-4 rounded-sm transition-colors text-muted-foreground hover:text-foreground hover:bg-muted"
                       >
                         <RefreshCw className="size-3" />
-                      </button>
-                    )}
-                    {CONNECTION_TAB_TYPES.includes(tab.type) && onOpenShare && (
-                      <button
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenShare(tab.id);
-                        }}
-                        title={t("sessionSharing.shareButton")}
-                        className="flex items-center justify-center size-5 md:size-4 rounded-sm transition-colors text-muted-foreground hover:text-foreground hover:bg-muted"
-                      >
-                        <Share2 className="size-3" />
                       </button>
                     )}
                     <button
@@ -543,13 +537,20 @@ export function TabBar({
               sideOffset={1}
               className="w-56 border-t-0 [clip-path:inset(0px_-4px_-4px_-4px)] p-0"
             >
-              {tabs.map((tab) => (
+              {tabs.map((tab, index) => (
                 <div
                   key={tab.id}
                   onClick={() => onSetActiveTab(tab.id)}
                   className={`flex items-center justify-between px-2 py-2 text-xs cursor-default hover:bg-accent hover:text-accent-foreground ${tab.id === activeTabId ? "text-foreground" : "text-muted-foreground"}`}
                 >
                   <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {showTabNumbers && tab.type !== "dashboard" && (
+                      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
+                        {tabs
+                          .slice(0, index)
+                          .filter((t) => t.type !== "dashboard").length + 1}
+                      </span>
+                    )}
                     {tabIcon(tab.type)}
                     <span className="truncate">
                       {tab.type === "dashboard"
@@ -659,7 +660,7 @@ export function TabBar({
                 {ctxTab.label}
               </div>
               <div className="h-px bg-border my-1" />
-              {CONNECTION_TAB_TYPES.includes(ctxTab.type) && (
+              {isConnectionTab(ctxTab.type) && (
                 <button
                   className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-accent hover:text-accent-foreground"
                   onClick={() => {
@@ -671,7 +672,8 @@ export function TabBar({
                   {t("nav.refreshTab")}
                 </button>
               )}
-              {ctxTab.type === "terminal" &&
+              {typeof ctxTab.terminalRef?.current?.openFileManager ===
+                "function" &&
                 ctxTab.host &&
                 onOpenFileManager && (
                   <button
@@ -685,6 +687,26 @@ export function TabBar({
                     {t("nav.openFileManager")}
                   </button>
                 )}
+              {/* Plugins add entries here, invoked with the tab's surface handle. */}
+              <ActionSlot
+                slotId="tab.menu"
+                when={{ tab: ctxTab, handle: ctxTab.terminalRef?.current }}
+                context={() => [ctxTab.terminalRef?.current]}
+                renderItem={(contribution, invoke) => (
+                  <button
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-accent hover:text-accent-foreground"
+                    onClick={() => {
+                      invoke();
+                      setContextTabId(null);
+                    }}
+                  >
+                    {contribution.icon && (
+                      <contribution.icon className="size-3" />
+                    )}
+                    {t(contribution.titleKey)}
+                  </button>
+                )}
+              />
               <button
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-accent hover:text-accent-foreground"
                 onClick={() => {

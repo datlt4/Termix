@@ -1,22 +1,10 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webFrame } = require("electron");
 
 const ALLOWED_INVOKE_CHANNELS = new Set([
-  "check-electron-update",
-  "clear-remote-sync-config",
   "get-desktop-settings",
-  "get-legacy-server-config",
-  "get-remote-sync-config",
-  "get-remote-sync-jwt",
-  "get-remote-sync-status",
-  "get-remote-sync-user-info",
-  "notify-local-login",
-  "remote-sync-now",
+  "get-previous-server-url",
   "save-desktop-settings",
-  "save-remote-sync-config",
-  "save-remote-sync-jwt",
-  "test-server-connection",
   "allow-invalid-certificate-for-origin",
-  "open-isolated-web-endpoint",
 ]);
 
 function invokeAllowed(channel, ...args) {
@@ -28,10 +16,15 @@ function invokeAllowed(channel, ...args) {
 
 contextBridge.exposeInMainWorld("electronAPI", {
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+  // Kept so the interface size can reset a zoom an earlier build applied.
+  setZoomFactor: (factor) => {
+    const value = Number(factor);
+    if (!Number.isFinite(value)) return;
+    webFrame.setZoomFactor(Math.min(2, Math.max(0.5, value)));
+  },
   getPlatform: () => ipcRenderer.invoke("get-platform"),
   getEmbeddedServerStatus: () =>
     ipcRenderer.invoke("get-embedded-server-status"),
-  openNativeRdp: (options) => ipcRenderer.invoke("open-native-rdp", options),
 
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
   isElectron: true,
@@ -61,12 +54,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   startC2SAutoStartTunnels: () =>
     ipcRenderer.invoke("start-c2s-autostart-tunnels"),
 
-  onRemoteSyncStatusChanged: (callback) => {
-    const listener = (_event, status) => callback(status);
-    ipcRenderer.on("remote-sync-status-changed", listener);
-    return () =>
-      ipcRenderer.removeListener("remote-sync-status-changed", listener);
-  },
   onCloseActiveTab: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("close-active-tab", listener);

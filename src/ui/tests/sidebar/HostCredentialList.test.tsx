@@ -42,26 +42,9 @@ function makeHost(overrides: Partial<Host>): Host {
     ram: null,
     lastAccess: "",
     authType: "credential",
-    enableTerminal: true,
-    enableTerminalToolbar: true,
-    enableAiAssistant: false,
-    enableCommandHistory: true,
-    enableTunnel: false,
-    serverTunnels: [],
-    enableFileManager: true,
-    enableDocker: false,
-    enableProxmox: false,
-    enableProxmoxStats: false,
-    enableTmuxMonitor: false,
     quickActions: [],
     enableSsh: true,
-    enableRdp: false,
-    enableVnc: false,
-    enableTelnet: false,
     sshPort: 22,
-    rdpPort: 3389,
-    vncPort: 5900,
-    telnetPort: 23,
     ...overrides,
   };
 }
@@ -81,7 +64,6 @@ async function renderOpenedList({
       allHosts={hosts}
       editingFolderName={null}
       editingFolderValue=""
-      termixIdLinkedIds={new Set()}
       onEditingFolderNameChange={vi.fn()}
       onEditingFolderValueChange={vi.fn()}
       onRenameFolder={vi.fn()}
@@ -136,7 +118,6 @@ describe("HostCredentialList credential usage", () => {
           credentialId: undefined,
           rdpCredentialId: "1",
           enableSsh: false,
-          enableRdp: true,
         }),
       ],
     });

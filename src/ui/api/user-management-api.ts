@@ -194,19 +194,6 @@ export async function adminResetUserPassword(
   return response.data;
 }
 
-export async function adminDisableUserTotp(
-  userId: string,
-): Promise<{ message: string }> {
-  try {
-    const response = await authApi.post("/users/admin/totp/disable", {
-      userId,
-    });
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "disable user TOTP");
-  }
-}
-
 export async function adminExportUserData(
   userId: string,
 ): Promise<Record<string, unknown>> {
@@ -253,6 +240,33 @@ export async function updateOidcAutoProvision(
     return response.data;
   } catch (error) {
     handleApiError(error, "update OIDC auto-provision");
+  }
+}
+
+export async function getSecondFactorAfterExternalLogin(): Promise<{
+  enabled: boolean;
+}> {
+  try {
+    const response = await authApi.get(
+      "/users/second-factor-after-external-login",
+    );
+    return response.data;
+  } catch (error) {
+    handleApiError(error, "check second factor after external login status");
+  }
+}
+
+export async function updateSecondFactorAfterExternalLogin(
+  enabled: boolean,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await authApi.patch(
+      "/users/second-factor-after-external-login",
+      { enabled },
+    );
+    return response.data;
+  } catch (error) {
+    handleApiError(error, "update second factor after external login");
   }
 }
 
@@ -313,50 +327,6 @@ export async function updatePasswordResetAllowed(
     return response.data;
   } catch (error) {
     handleApiError(error, "update password reset allowed");
-  }
-}
-
-export async function getCommandHistoryEnabled(): Promise<{
-  enabled: boolean;
-}> {
-  try {
-    const response = await authApi.get("/users/command-history-enabled");
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "get command history enabled");
-  }
-}
-
-export async function updateCommandHistoryEnabled(
-  enabled: boolean,
-): Promise<{ enabled: boolean }> {
-  try {
-    const response = await authApi.patch("/users/command-history-enabled", {
-      enabled,
-    });
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "update command history enabled");
-  }
-}
-
-export async function updateOIDCConfig(
-  config: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  try {
-    const response = await authApi.post("/users/oidc-config", config);
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "update OIDC config");
-  }
-}
-
-export async function disableOIDCConfig(): Promise<Record<string, unknown>> {
-  try {
-    const response = await authApi.delete("/users/oidc-config");
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "disable OIDC config");
   }
 }
 

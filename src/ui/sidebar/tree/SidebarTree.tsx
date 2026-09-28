@@ -6,18 +6,17 @@ import {
   useLayoutEffect,
   useState,
 } from "react";
+import { updatePluginHostSettings } from "@/api/plugins-api";
+import { PluginIcon } from "@/lib/plugin-icon";
+import { usePluginHostSections } from "@/settings/HostPluginSections";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAreaPreferences } from "@/contexts/UiPreferencesContext";
 import {
-  Box,
-  Boxes,
   ChevronDown,
   Download,
   FolderOpen,
-  FolderSearch,
   Loader2,
-  Network,
   Plus,
   Server,
   Terminal,
@@ -76,7 +75,6 @@ export function SidebarTree({
   onOpenTab,
   onEditHost,
   onShareHost,
-  onProxmoxDiscover,
   query = "",
   selectionMode,
   onToggleSelectionMode,
@@ -87,16 +85,21 @@ export function SidebarTree({
   trayTrigger = "hover",
   showTags = true,
   openOnDoubleClick = false,
+  showFolderPaths = true,
+  focusExistingTab = true,
 }: {
   children: (Host | HostFolder)[];
   onOpenTab: (
     host: Host,
     type: TabType,
-    options?: { endpointId?: string; label?: string },
+    options?: {
+      data?: Record<string, unknown>;
+      label?: string;
+      forceNewTab?: boolean;
+    },
   ) => void;
   onEditHost: (host: Host) => void;
   onShareHost?: (host: Host) => void;
-  onProxmoxDiscover?: (host: Host) => void;
   query?: string;
   selectionMode: boolean;
   onToggleSelectionMode: () => void;
@@ -108,8 +111,15 @@ export function SidebarTree({
   trayTrigger?: HostTrayTrigger;
   showTags?: boolean;
   openOnDoubleClick?: boolean;
+  /** When false, nested folders hide the parent-path breadcrumb before their name. */
+  showFolderPaths?: boolean;
+  /** When true, clicking a host with an already-open tab focuses it instead of opening a new one. */
+  focusExistingTab?: boolean;
 }) {
   const { t } = useTranslation();
+  const hostSwitchPlugins = usePluginHostSections().filter(
+    (plugin) => !!plugin.contributes?.settings?.host?.enableKey,
+  );
   // Knobs with no other owner come straight from the interface preset; the
   // ones above still come from the host sidebar preferences blob.
   const { showResourceBars, showStatusStripes, rowActions } =
@@ -440,7 +450,7 @@ export function SidebarTree({
     const hosts = collectAllHosts(folder.children);
     for (const host of hosts) {
       const type = resolveHostTabType(host);
-      onOpenTab(host, type);
+      if (type) onOpenTab(host, type);
     }
   }
 
@@ -449,6 +459,7 @@ export function SidebarTree({
     color: string;
     icon: string;
     credentialId: number | null;
+    localOnly: boolean;
   }) {
     const existing = folderDialog?.folder;
     try {
@@ -466,6 +477,7 @@ export function SidebarTree({
           value.color,
           value.icon,
           value.credentialId,
+          value.localOnly,
         );
       } else {
         await updateFolderMetadata(
@@ -473,6 +485,7 @@ export function SidebarTree({
           value.color,
           value.icon,
           value.credentialId,
+          value.localOnly,
         );
       }
       window.dispatchEvent(new CustomEvent("termix:hosts-changed"));
@@ -589,7 +602,6 @@ export function SidebarTree({
         tags: host.tags ?? [],
         pin: host.pin ?? false,
         notes: host.notes,
-        macAddress: host.macAddress,
         // Key material is never sent to the frontend, so a cloned key-auth
         // host would have authType "key" with no key — unusable. Reset to
         // password so the clone is in a connectable (editable) state.
@@ -601,22 +613,10 @@ export function SidebarTree({
         credentialId: host.credentialId ? Number(host.credentialId) : null,
         overrideCredentialUsername: host.overrideCredentialUsername ?? false,
         enableSsh: host.enableSsh,
-        enableRdp: host.enableRdp,
-        enableVnc: host.enableVnc,
-        enableTelnet: host.enableTelnet,
-        enableTerminal: host.enableTerminal,
-        enableTunnel: host.enableTunnel,
-        enableFileManager: host.enableFileManager,
-        enableDocker: host.enableDocker,
         sshPort: host.sshPort,
-        rdpPort: host.rdpPort,
-        vncPort: host.vncPort,
-        telnetPort: host.telnetPort,
         rdpUser: host.rdpUser ?? null,
         rdpPassword: host.rdpPassword ?? null,
         rdpDomain: host.domain ?? null,
-        rdpSecurity: host.security ?? null,
-        rdpIgnoreCert: host.ignoreCert ?? false,
         vncAuthType: host.vncAuthType ?? null,
         vncCredentialId: host.vncCredentialId
           ? Number(host.vncCredentialId)
@@ -625,7 +625,6 @@ export function SidebarTree({
         vncUser: host.vncUser ?? null,
         telnetUser: host.telnetUser ?? null,
         telnetPassword: host.telnetPassword ?? null,
-        defaultPath: host.defaultPath ?? "/",
         forceKeyboardInteractive: host.forceKeyboardInteractive ?? false,
         useSocks5: host.useSocks5,
         socks5Host: host.socks5Host ?? null,
@@ -637,16 +636,27 @@ export function SidebarTree({
           hostId: Number(j.hostId),
         })),
         portKnockSequence: host.portKnockSequence ?? [],
-        tunnelConnections: host.serverTunnels ?? [],
         quickActions: (host.quickActions ?? []).map((a) => ({
           name: a.name,
           snippetId: Number(a.snippetId),
         })),
-        statsConfig: host.statsConfig,
-        guacamoleConfig: host.guacamoleConfig ?? null,
+        statusCheckEnabled: host.statusCheckEnabled,
+        statusCheckInterval: host.statusCheckInterval,
         terminalConfig: host.terminalConfig ?? null,
       };
-      await createSSHHost(duplicateHost);
+      const created = await createSSHHost(duplicateHost);
+      // Plugin host settings live outside the host row. Secrets come back
+      // redacted, and sending the marker back is a no-op, so they stay unset.
+      for (const [pluginId, fields] of Object.entries(
+        host.pluginSettings ?? {},
+      )) {
+        if (!fields || Object.keys(fields).length === 0) continue;
+        await updatePluginHostSettings(
+          pluginId,
+          Number(created.id),
+          fields,
+        ).catch(() => {});
+      }
       window.dispatchEvent(new CustomEvent("termix:hosts-changed"));
       toast.success(t("hosts.duplicatedHost", { name: host.name }));
     } catch {
@@ -810,9 +820,13 @@ export function SidebarTree({
     getItemKey: (index) => {
       const row = visibleRows[index];
       if (!row) return index;
+      // Group-by views (e.g. by tags) can list the same host under several
+      // group folders, so parentPath is folded in to keep each occurrence's
+      // key unique -- a shared key across rows made the virtualizer collide
+      // their measured positions and render them stacked on top of each other.
       return isFolder(row.item)
         ? `folder:${row.item.path ?? row.item.name}`
-        : `host:${row.item.id}`;
+        : `${row.parentPath}>host:${row.item.id}`;
     },
   });
 
@@ -847,6 +861,12 @@ export function SidebarTree({
   // and made the list visibly jump apart on every pointer move.
   useLayoutEffect(() => {
     virtualizer.measure();
+    // Rebuild the cleared size cache before measuring the mounted rows again.
+    virtualizer.getTotalSize();
+    // Unchanged rows will not trigger ResizeObserver after their cache is cleared.
+    parentRef.current
+      ?.querySelectorAll<HTMLElement>("[data-index]")
+      .forEach((element) => virtualizer.measureElement(element));
   }, [virtualizer, density, trayTrigger, showTags, showResourceBars]);
 
   if (loading) {
@@ -960,7 +980,6 @@ export function SidebarTree({
                       onShareHost={onShareHost}
                       onDeleteHost={handleDeleteHost}
                       onDuplicateHost={handleDuplicateHost}
-                      onProxmoxDiscover={onProxmoxDiscover}
                       query={query}
                       openFolders={openFolders}
                       onToggleFolder={toggleFolder}
@@ -996,6 +1015,8 @@ export function SidebarTree({
                       trayTrigger={trayTrigger}
                       showTags={showTags}
                       openOnDoubleClick={openOnDoubleClick}
+                      showFolderPaths={showFolderPaths}
+                      focusExistingTab={focusExistingTab}
                       arrangeMode={arrangeMode}
                       isDragging={
                         draggedReorderKey === `folder:${item.path ?? item.name}`
@@ -1029,11 +1050,6 @@ export function SidebarTree({
                       onEditHost={() => onEditHost(item)}
                       onShareHost={
                         onShareHost ? () => onShareHost(item) : undefined
-                      }
-                      onProxmoxDiscover={
-                        onProxmoxDiscover
-                          ? () => onProxmoxDiscover(item)
-                          : undefined
                       }
                       onDelete={() => handleDeleteHost(item)}
                       onDuplicate={() => handleDuplicateHost(item)}
@@ -1072,6 +1088,7 @@ export function SidebarTree({
                       trayTrigger={trayTrigger}
                       showTags={showTags}
                       openOnDoubleClick={openOnDoubleClick}
+                      focusExistingTab={focusExistingTab}
                       showResourceBars={showResourceBars}
                       showStatusStripes={showStatusStripes}
                       rowActions={rowActions}
@@ -1135,89 +1152,40 @@ export function SidebarTree({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="text-xs">
-                {[
-                  {
-                    labelKey: "hosts.enableTerminalFeature",
-                    field: "enableTerminal",
-                    value: true,
-                    icon: Terminal,
-                  },
-                  {
-                    labelKey: "hosts.disableTerminalFeature",
-                    field: "enableTerminal",
-                    value: false,
-                    icon: Terminal,
-                  },
-                  {
-                    labelKey: "hosts.enableFilesFeature",
-                    field: "enableFileManager",
-                    value: true,
-                    icon: FolderSearch,
-                  },
-                  {
-                    labelKey: "hosts.disableFilesFeature",
-                    field: "enableFileManager",
-                    value: false,
-                    icon: FolderSearch,
-                  },
-                  {
-                    labelKey: "hosts.enableTunnelsFeature",
-                    field: "enableTunnel",
-                    value: true,
-                    icon: Network,
-                  },
-                  {
-                    labelKey: "hosts.disableTunnelsFeature",
-                    field: "enableTunnel",
-                    value: false,
-                    icon: Network,
-                  },
-                  {
-                    labelKey: "hosts.enableDockerFeature",
-                    field: "enableDocker",
-                    value: true,
-                    icon: Box,
-                  },
-                  {
-                    labelKey: "hosts.disableDockerFeature",
-                    field: "enableDocker",
-                    value: false,
-                    icon: Box,
-                  },
-                  {
-                    labelKey: "hosts.enableProxmoxFeature",
-                    field: "enableProxmox",
-                    value: true,
-                    icon: Boxes,
-                  },
-                  {
-                    labelKey: "hosts.disableProxmoxFeature",
-                    field: "enableProxmox",
-                    value: false,
-                    icon: Boxes,
-                  },
-                ].map(({ labelKey, field, value, icon: Icon }) => (
-                  <DropdownMenuItem
-                    key={labelKey}
-                    onClick={async () => {
-                      const ids = Array.from(selectedHostIds).map(Number);
-                      try {
-                        await bulkUpdateSSHHosts(ids, { [field]: value });
-                        window.dispatchEvent(
-                          new CustomEvent("termix:hosts-changed"),
-                        );
-                        toast.success(
-                          t("hosts.updatedCount", { count: ids.length }),
-                        );
-                      } catch {
-                        toast.error(t("hosts.bulkUpdateFailed"));
-                      }
-                    }}
-                  >
-                    <Icon className="size-3.5 mr-2" />
-                    {t(labelKey)}
-                  </DropdownMenuItem>
-                ))}
+                {hostSwitchPlugins.flatMap((plugin) =>
+                  [true, false].map((value) => (
+                    <DropdownMenuItem
+                      key={`${plugin.id}:${value}`}
+                      onClick={async () => {
+                        const ids = Array.from(selectedHostIds).map(Number);
+                        try {
+                          await bulkUpdateSSHHosts(ids, {
+                            pluginEnable: { [plugin.id]: value },
+                          });
+                          window.dispatchEvent(
+                            new CustomEvent("termix:hosts-changed"),
+                          );
+                          toast.success(
+                            t("hosts.updatedCount", { count: ids.length }),
+                          );
+                        } catch {
+                          toast.error(t("hosts.bulkUpdateFailed"));
+                        }
+                      }}
+                    >
+                      <PluginIcon
+                        name={plugin.icon}
+                        className="size-3.5 mr-2"
+                      />
+                      {t(
+                        value
+                          ? "hosts.enablePluginFeature"
+                          : "hosts.disablePluginFeature",
+                        { name: plugin.name },
+                      )}
+                    </DropdownMenuItem>
+                  )),
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
             <DropdownMenu>
@@ -1289,10 +1257,8 @@ export function SidebarTree({
                   selectedHostIds.has(String(h.id)),
                 );
                 for (const host of selectedHosts) {
-                  if (host.enableSsh) onOpenTab(host, "terminal");
-                  else if (host.enableRdp) onOpenTab(host, "rdp");
-                  else if (host.enableVnc) onOpenTab(host, "vnc");
-                  else if (host.enableTelnet) onOpenTab(host, "telnet");
+                  const type = resolveHostTabType(host);
+                  if (type) onOpenTab(host, type);
                 }
                 setSelectedHostIds(new Set());
                 onToggleSelectionMode();
@@ -1389,6 +1355,7 @@ export function SidebarTree({
                 color: folderDialog.folder.color,
                 icon: folderDialog.folder.icon,
                 credentialId: folderDialog.folder.credentialId,
+                localOnly: folderDialog.folder.localOnly,
               }
             : undefined
         }
