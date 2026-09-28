@@ -177,6 +177,7 @@ import {
 } from "@/shell/tab-registry";
 import { getPanel, usePanels } from "@/shell/panel-registry";
 import { invokeAction } from "@/shell/action-registry";
+import { isElectron } from "@/lib/electron";
 import { usePluginStore } from "@/plugin-host/plugin-store";
 import {
   notifyShellReady,
