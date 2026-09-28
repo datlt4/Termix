@@ -3300,6 +3300,20 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         // Forward global app shortcuts to AppShell directly — xterm swallows
         // all keydown events and synthetic re-dispatch is unreliable.
         // stopPropagation prevents the same event from also firing the window listener.
+        // Ctrl+L / Cmd+L opens a local terminal (Electron only; on the web
+        // build Ctrl+L keeps its traditional "clear screen" behavior).
+        if (
+          isElectron() &&
+          (e.ctrlKey || e.metaKey) &&
+          !e.shiftKey &&
+          !e.altKey &&
+          e.code === "KeyL"
+        ) {
+          e.stopPropagation();
+          globalShortcutHandler.current?.(e);
+          return false;
+        }
+
         if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
           const globalCodes = [
             "BracketRight",
