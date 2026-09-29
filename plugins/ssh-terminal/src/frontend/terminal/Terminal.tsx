@@ -36,7 +36,7 @@ import { getTerminalBufferText } from "./terminal-buffer-text.ts";
 import { getMacLineNavigationSequence } from "../lib/mac-line-navigation";
 import { useCommandTracker } from "./command-history/useCommandTracker";
 import { useHostApi } from "../lib/use-host-connection-origin";
-import { readNativeClipboardImage } from "../lib/clipboard-image";
+import { readClipboardImageFile } from "../lib/clipboard-image";
 import {
   highlightTerminalOutput,
   updateControlStringMode,
@@ -3617,72 +3617,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       }
       setIsImageUploading(true);
       try {
-        const items = await navigator.clipboard.read();
-        for (const item of items) {
-          const imageType = item.types.find((type) =>
-            type.startsWith("image/"),
-          );
-          if (!imageType) continue;
-          const blob = await item.getType(imageType);
-          let clipboardFile = new File([blob], "clipboard-image.png", {
-            type: imageType,
-          });
-          // Preserve native PNG clipboard bytes. Some browser/platform
-          // clipboard implementations decode transparent PNGs incorrectly
-          // through canvas, producing an all-black/transparent re-encode.
-          // Only rasterize formats that need conversion; Sharp validates the
-          // resulting image server-side.
-          if (
-            imageType !== "image/png" &&
-            typeof createImageBitmap === "function"
-          ) {
-            try {
-              const bitmap = await createImageBitmap(blob);
-              try {
-                const canvas = document.createElement("canvas");
-                canvas.width = bitmap.width;
-                canvas.height = bitmap.height;
-                const context = canvas.getContext("2d");
-                if (!context) throw new Error("Canvas unavailable");
-                context.drawImage(bitmap, 0, 0);
-                const png = await new Promise<Blob>((resolve, reject) => {
-                  canvas.toBlob((result) => {
-                    if (result) resolve(result);
-                    else reject(new Error("Clipboard image conversion failed"));
-                  }, "image/png");
-                });
-                clipboardFile = new File([png], "clipboard-image.png", {
-                  type: "image/png",
-                });
-              } finally {
-                bitmap.close();
-              }
-            } catch {
-              // Fall back to the original clipboard blob.
-            }
-          }
+        const clipboardFile = await readClipboardImageFile();
+        if (clipboardFile) {
           await handleImageUpload(clipboardFile, "clipboard");
-          return;
-        }
-        // Some Linux clipboard bridges make the Web Clipboard API "succeed"
-        // while omitting image entries; try the native clipboard before
-        // declaring the clipboard empty.
-        const nativeImageFile = await readNativeClipboardImage();
-        if (nativeImageFile) {
-          await handleImageUpload(nativeImageFile, "clipboard");
           return;
         }
         toast.error("No image found in the clipboard");
       } catch (error) {
-        // navigator.clipboard.read() can fail on Linux (Wayland portals, no
-        // session access from the renderer) even when the platform
-        // clipboard is readable. In the desktop app, fall back to the native
-        // clipboard through the main process.
-        const nativeImageFile = await readNativeClipboardImage();
-        if (nativeImageFile) {
-          await handleImageUpload(nativeImageFile, "clipboard");
-          return;
-        }
         toast.error(getErrorMessage(error, "Clipboard read failed"));
       } finally {
         setIsImageUploading(false);

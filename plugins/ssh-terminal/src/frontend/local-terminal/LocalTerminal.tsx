@@ -3,7 +3,6 @@ import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { useXTerm } from "react-xtermjs";
 import { toast } from "sonner";
-import { ClipboardPaste, ImagePlus, Loader2 } from "lucide-react";
 import { getMacLineNavigationSequence } from "../lib/mac-line-navigation";
 import {
   handleTerminalClipboardKeyEvent,
@@ -14,7 +13,8 @@ import {
   type TerminalImageUploadSource,
 } from "../terminal/terminal-image-upload";
 import { quoteTerminalImagePath } from "../terminal/terminal-image-path";
-import { readNativeClipboardImage } from "../lib/clipboard-image";
+import { TerminalToolbar } from "../terminal/TerminalToolbar";
+import { readClipboardImageFile } from "../lib/clipboard-image";
 import {
   useAppTheme as useTheme,
   resolveTermixThemeColors,
@@ -30,9 +30,6 @@ import {
   type LocalTerminalSettings,
 } from "@termix/plugin-sdk/ui";
 import { usePluginApi, useTranslation } from "@termix/plugin-sdk/frontend";
-
-const TOOLBAR_BUTTON =
-  "inline-flex min-h-7 min-w-7 items-center justify-center rounded-sm px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40";
 
 export function LocalTerminal({
   instanceId,
@@ -64,10 +61,13 @@ export function LocalTerminal({
   const imageUploadingRef = useRef(false);
   const terminalRef = useRef(terminal);
   terminalRef.current = terminal;
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   // The local terminal is Electron-only and its shell runs on this machine,
   // so image uploads always target the embedded local backend.
   const api = usePluginApi();
+  // Mirrors the SSH terminal's toolbar: the floating bar dims when the
+  // terminal isn't focused, so we track xterm's focus/blur.
+  const [isTerminalFocused, setIsTerminalFocused] = useState(false);
+  const [isLocalConnected, setIsLocalConnected] = useState(false);
 
   /**
    * Stores the image in this backend's local image storage and pastes the
@@ -116,6 +116,17 @@ export function LocalTerminal({
       setIsImageUploading(false);
       setImageUploadProgress(null);
     }
+  }
+  // The toolbar's paste button: an image from the clipboard (Web Clipboard
+  // API first, native clipboard as fallback). Plain text stays with
+  // Ctrl/Cmd+V and the context menu.
+  async function handlePasteImage() {
+    const imageFile = await readClipboardImageFile();
+    if (imageFile) {
+      await handleImageUpload(imageFile, "clipboard");
+      return;
+    }
+    toast.error(tRef.current("terminal.clipboardReadFailed"));
   }
   // Latest-ref so the (rarely re-run) session effect always calls the
   // current handler without depending on its identity.
@@ -191,7 +202,7 @@ export function LocalTerminal({
       // An image-only clipboard has no text: upload the image to this
       // machine's local image storage and paste the file path into the
       // shell, mirroring the SSH terminal's Ctrl+V behavior.
-      const imageFile = await readNativeClipboardImage();
+      const imageFile = await readClipboardImageFile();
       if (imageFile) {
         void handleImageUploadRef.current(imageFile, "clipboard");
         return "";
@@ -233,6 +244,18 @@ export function LocalTerminal({
       const sessionId = sessionIdRef.current;
       if (sessionId) window.electronAPI.writeLocalTerminal(sessionId, data);
     });
+    // xterm exposes no focus events on the Terminal API; its inner textarea
+    // is what actually receives focus, so track the DOM instead.
+    const focusTarget = xtermRef.current;
+    const handleFocusIn = () => setIsTerminalFocused(true);
+    const handleFocusOut = (event: FocusEvent) => {
+      // Focus moving inside the terminal (e.g. to an inner widget) keeps it
+      // "focused" for toolbar dimming purposes.
+      if (focusTarget?.contains(event.relatedTarget as Node | null)) return;
+      setIsTerminalFocused(false);
+    };
+    focusTarget?.addEventListener("focusin", handleFocusIn);
+    focusTarget?.addEventListener("focusout", handleFocusOut);
 
     window.electronAPI
       .startLocalTerminal({ cols: terminal.cols, rows: terminal.rows, shell })
@@ -242,6 +265,7 @@ export function LocalTerminal({
           return;
         }
         sessionIdRef.current = sessionId;
+        setIsLocalConnected(true);
         removeData = window.electronAPI.onLocalTerminalData(sessionId, (data) =>
           terminal.write(data),
         );
@@ -249,6 +273,7 @@ export function LocalTerminal({
           sessionId,
           (exitCode) => {
             sessionIdRef.current = null;
+            setIsLocalConnected(false);
             terminal.write(
               `\r\n\x1b[33mProcess exited (${exitCode})\x1b[0m\r\n`,
             );
@@ -268,12 +293,15 @@ export function LocalTerminal({
       terminal.attachCustomKeyEventHandler(() => true);
       observer.disconnect();
       input.dispose();
+      focusTarget?.removeEventListener("focusin", handleFocusIn);
+      focusTarget?.removeEventListener("focusout", handleFocusOut);
       removeData();
       removeExit();
       element?.removeEventListener("contextmenu", handleContextMenu);
       clipboardProvider.dispose();
       const sessionId = sessionIdRef.current;
       sessionIdRef.current = null;
+      setIsLocalConnected(false);
       if (sessionId) window.electronAPI.closeLocalTerminal(sessionId);
       fitAddonRef.current = null;
       fitAddon.dispose();
@@ -286,86 +314,8 @@ export function LocalTerminal({
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
-      <div className="flex items-center gap-1 border-b border-border px-2 py-1">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="sr-only"
-          tabIndex={-1}
-          aria-hidden="true"
-          disabled={isImageUploading}
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (file) void handleImageUpload(file, "file");
-          }}
-        />
-        <button
-          type="button"
-          className={TOOLBAR_BUTTON}
-          aria-label={t("terminalToolbar.uploadImage")}
-          title={t("terminalToolbar.uploadImage")}
-          disabled={isImageUploading}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <ImagePlus className="size-4" />
-        </button>
-        <button
-          type="button"
-          className={TOOLBAR_BUTTON}
-          aria-label={t("terminalToolbar.pasteImage")}
-          title={t("terminalToolbar.pasteImage")}
-          disabled={isImageUploading}
-          onClick={() => {
-            void (async () => {
-              const text = await readFromClipboard();
-              if (text) {
-                terminalRef.current?.paste(text);
-                return;
-              }
-              const imageFile = await readNativeClipboardImage();
-              if (imageFile) {
-                void handleImageUpload(imageFile, "clipboard");
-                return;
-              }
-              toast.error(tRef.current("terminal.clipboardReadFailed"));
-            })();
-          }}
-        >
-          <ClipboardPaste className="size-4" />
-        </button>
-        <span role="status" aria-live="polite" className="sr-only">
-          {isImageUploading ? t("terminalToolbar.uploadingImage") : ""}
-        </span>
-        {isImageUploading && (
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 shrink-0 animate-spin" />
-            <span className="whitespace-nowrap">
-              {t("terminalToolbar.uploadingImage")}
-              {typeof imageUploadProgress === "number"
-                ? ` ${imageUploadProgress}%`
-                : ""}
-            </span>
-            <span className="h-1 w-16 overflow-hidden rounded-full bg-muted">
-              <span
-                className={
-                  "block h-full rounded-full bg-accent-brand transition-[width] duration-150" +
-                  (imageUploadProgress == null
-                    ? " w-1/3 animate-pulse transition-none"
-                    : "")
-                }
-                style={
-                  imageUploadProgress != null
-                    ? { width: `${imageUploadProgress}%` }
-                    : undefined
-                }
-              />
-            </span>
-          </span>
-        )}
-        <div className="min-w-2 flex-1" />
-        {isWindows && (
+      {isWindows && (
+        <div className="flex justify-end border-b border-border px-2 py-1">
           <select
             aria-label="Local terminal shell"
             className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
@@ -377,9 +327,26 @@ export function LocalTerminal({
             <option value="default">PowerShell</option>
             <option value="wsl">WSL</option>
           </select>
-        )}
+        </div>
+      )}
+      <div className="relative min-h-0 flex-1">
+        <div ref={xtermRef} className="h-full w-full p-2" />
+        {/* Same floating toolbar as the SSH terminal. No host is bound, so
+            only the image actions apply; uploads go to this machine's
+            backend. */}
+        <TerminalToolbar
+          terminalIdentity={instanceId}
+          isConnected={isLocalConnected}
+          isTmuxAttached={false}
+          onTmuxDetach={() => {}}
+          isImageUploading={isImageUploading}
+          imageUploadProgress={imageUploadProgress}
+          onUploadImage={(file) => void handleImageUpload(file, "file")}
+          onPasteImage={() => void handlePasteImage()}
+          isFocused={isTerminalFocused}
+          actionsEnabled={false}
+        />
       </div>
-      <div ref={xtermRef} className="min-h-0 flex-1 p-2" />
     </div>
   );
 }

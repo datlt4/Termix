@@ -426,14 +426,16 @@ describe("TerminalToolbar Phase 1", () => {
     rerender(<TerminalToolbar {...props} isImageUploading />);
     expect(container.querySelector('input[type="file"]')).toBe(input);
     expect(screen.getByRole("status")).toHaveTextContent("Uploading image…");
+    // The buttons are replaced by the progress readout while the upload is
+    // in flight, so there is nothing else to trigger.
     expect(
-      screen.getAllByRole("button", { name: "Upload an image to the host" })[0],
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Upload an image to the host" }),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getAllByRole("button", {
+      screen.queryByRole("button", {
         name: "Paste image from clipboard (images only)",
-      })[0],
-    ).toBeDisabled();
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows a visible progress chip while an image upload is in flight", () => {
