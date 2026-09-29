@@ -101,7 +101,6 @@
     "consoleTab": "Console",
     "startContainerToAccess": "Start the container to access the console",
     "noHostSelected": "No host selected",
-    "noHostSelectedDesc": "Open a terminal session on a host to manage its Docker.",
     "failedToFetchLogs": "Failed to fetch logs: {{error}}",
     "failedToDownloadLogs": "Failed to download logs: {{error}}",
     "containers": "Containers",

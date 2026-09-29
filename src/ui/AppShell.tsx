@@ -2828,7 +2828,14 @@ export function AppShell({
                 isAppFullscreen={isAppFullscreen}
                 onToggleAppFullscreen={toggleAppFullscreen}
                 rightDockOpen={rightRailView !== null}
-                onToggleRightDock={isMobile ? undefined : toggleRightDock}
+                // The right dock hosts plugin-registered panels; with none
+                // dockable (this fork keeps it empty) there is nothing to
+                // toggle, so the button stays out of the tab bar.
+                onToggleRightDock={
+                  isMobile || rightDockableIds().length === 0
+                    ? undefined
+                    : toggleRightDock
+                }
                 showTabNumbers={showTabNumbers}
               />
               <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
