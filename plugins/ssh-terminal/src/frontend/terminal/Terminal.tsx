@@ -2834,6 +2834,19 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           e.preventDefault();
           e.stopPropagation();
           terminal.paste(text);
+          return;
+        }
+        // Image-only clipboard (Ctrl+V): upload it into the session and
+        // paste the stored path, so image-aware CLIs (Claude Code, OpenCode)
+        // can read it. Goes through the paste event on purpose: unlike
+        // navigator.clipboard.read, clipboardData works on plain HTTP.
+        const imageFile = Array.from(e.clipboardData?.files ?? []).find(
+          (file) => file.type.startsWith("image/"),
+        );
+        if (imageFile) {
+          e.preventDefault();
+          e.stopPropagation();
+          void handleImageUpload(imageFile, "clipboard");
         }
       };
       element?.addEventListener("paste", handlePaste);

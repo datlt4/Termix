@@ -4,6 +4,7 @@ import { SessionLogsPanel } from "./SessionLogsPanel";
 import { RecordingStatus } from "./RecordingStatus";
 
 export function activate(app: TermixApp): void {
+  // Hidden in this fork: session logs are not wanted (storage overhead).
   app.registerRailItem({
     id: "session-logs",
     icon: ScrollText,
@@ -13,6 +14,7 @@ export function activate(app: TermixApp): void {
     rightDockable: true,
     separatorAfter: true,
     permission: "view",
+    hidden: true,
   });
 
   app.registerPanel("session-logs", () => <SessionLogsPanel />);
@@ -34,7 +36,8 @@ export function activate(app: TermixApp): void {
         | undefined;
       const enabled =
         host?.pluginSettings?.["session-recording"]?.enableSessionRecording;
-      return enabled !== false;
+      // Mirrors the backend default: recording is opt-in only.
+      return enabled === true;
     },
   });
 }

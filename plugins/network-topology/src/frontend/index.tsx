@@ -30,6 +30,7 @@ export function activate(app: TermixApp): void {
     hostless: true,
   });
 
+  // Hidden in this fork: the network graph is not used.
   app.registerRailItem({
     id: VIEW_ID,
     icon: Network,
@@ -37,6 +38,7 @@ export function activate(app: TermixApp): void {
     kind: "tab",
     after: "local-terminal",
     permission: "use",
+    hidden: true,
   });
 
   app.registerDashboardCard({

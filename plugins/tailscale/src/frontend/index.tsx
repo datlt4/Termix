@@ -30,12 +30,14 @@ function Panel({ shell }: PanelProps) {
 export function activate(app: TermixApp): void {
   setTailscaleApi(app.api);
   app.onDispose(() => setTailscaleApi(null));
+  // Hidden in this fork: WireGuard is used instead of Tailscale.
   app.registerRailItem({
     id: "tailscale",
     icon: Radar,
     titleKey: "nav.tailscale",
     after: "macros",
     order: 20,
+    hidden: true,
   });
   app.registerPanel("tailscale", Panel);
 
