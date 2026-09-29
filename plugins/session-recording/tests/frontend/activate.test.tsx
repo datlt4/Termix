@@ -30,18 +30,18 @@ function stubApi(overrides: Partial<PluginApiClient> = {}): PluginApiClient {
 }
 
 describe(`${manifest.id} activate`, () => {
-  it("registers only views its manifest declares", async () => {
+  it("registers only the toolbar status, no session-logs surface", async () => {
     rendered = await renderWithApp(plugin, {
       manifest,
       locales,
       api: stubApi(),
     });
 
-    expect(rendered.registered.tabs()).toEqual(["session-logs"]);
-    expect(rendered.registered.panels()).toEqual(["session-logs"]);
-    expect(rendered.registered.railItems()).toEqual([
-      expect.objectContaining({ id: "session-logs" }),
-    ]);
+    // The session-logs rail item, panel and tab are removed in this fork so
+    // nothing can mount the panel and poll its (failing) list endpoint.
+    expect(rendered.registered.tabs()).toEqual([]);
+    expect(rendered.registered.panels()).toEqual([]);
+    expect(rendered.registered.railItems()).toEqual([]);
     expect(rendered.registered.slot("terminal.toolbarStatus")).toEqual([
       "session-recording.terminalStatus",
     ]);
@@ -57,15 +57,6 @@ describe(`${manifest.id} activate`, () => {
     expect(app.registered.tabs()).toEqual([]);
     expect(app.registered.panels()).toEqual([]);
     expect(app.registered.railItems()).toEqual([]);
-  });
-
-  it("renders the panel without crashing", async () => {
-    rendered = await renderWithApp(plugin, {
-      manifest,
-      locales,
-      api: stubApi(),
-    });
-    const element = rendered.renderPanel("session-logs");
-    expect(element).toBeTruthy();
+    expect(app.registered.slot("terminal.toolbarStatus")).toEqual([]);
   });
 });

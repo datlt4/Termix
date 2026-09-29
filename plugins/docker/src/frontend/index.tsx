@@ -2,10 +2,12 @@ import type { ComponentType } from "react";
 import { Box } from "lucide-react";
 import type {
   HomepageWidgetContribution,
+  PanelProps,
   StandaloneViewProps,
   TabProps,
   TermixApp,
 } from "@termix/plugin-sdk/frontend";
+import { useTranslation } from "@termix/plugin-sdk/frontend";
 import { DockerManager } from "./DockerManager";
 import DockerApp from "./DockerApp";
 import { dockerWidget } from "./DockerWidget";
@@ -28,6 +30,45 @@ function DockerStandalone({ hostId }: StandaloneViewProps) {
   return <DockerApp hostId={hostId} />;
 }
 
+/**
+ * Right-dock replacement for the (removed) session-logs panel: manages the
+ * Docker of whichever host the active terminal session is on. The shell
+ * passes the active command-target tab; switching hosts reconnects the
+ * manager, which keeps its own SSH session per host.
+ */
+function DockerRightDockPanel({ targetTab, active }: PanelProps) {
+  const { t } = useTranslation();
+  const record = targetTab?.host as Record<string, unknown> | undefined;
+
+  if (!record) {
+    return (
+      <div className="flex flex-col items-center justify-center flex-1 gap-3 p-6 text-center">
+        <div className="size-10 bg-muted/40 flex items-center justify-center">
+          <Box className="size-5 text-muted-foreground/30" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-semibold text-muted-foreground/60">
+            {t("docker.noHostSelected")}
+          </span>
+          <span className="text-xs text-muted-foreground/40">
+            {t("docker.noHostSelectedDesc")}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <DockerManager
+      host={toDockerHost(record)}
+      title={record.name as string}
+      isVisible={active}
+      isTopbarOpen={false}
+      embedded={true}
+    />
+  );
+}
+
 export function activate(app: TermixApp): void {
   // Host actions filter synchronously, so the permission is read once here.
   let canUse = true;
@@ -45,6 +86,21 @@ export function activate(app: TermixApp): void {
     standalone: DockerStandalone,
     preload: () => import("./DockerManager"),
   });
+
+  // Hidden from the left rail but dockable to the right: toggling the right
+  // sidebar opens the Docker manager for the active host instead of the
+  // session-logs panel this fork removed.
+  app.registerRailItem({
+    id: "docker",
+    icon: Box,
+    titleKey: "nav.docker",
+    kind: "panel",
+    rightDockable: true,
+    hidden: true,
+    permission: "use",
+  });
+
+  app.registerPanel("docker", DockerRightDockPanel);
 
   app.registerHostAction({
     id: "docker",

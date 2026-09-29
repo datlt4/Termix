@@ -463,7 +463,7 @@ function DockerManagerInner({
       <div style={wrapperStyle} className={`${containerClass} relative`}>
         <div className="h-full w-full flex flex-col flex-1 min-h-0 overflow-hidden">
           <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
-            <Card className="flex-row items-center justify-between px-3 py-3 shrink-0 gap-0">
+            <Card className="flex-row flex-wrap items-center justify-between gap-2 px-3 py-3 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="size-10 border border-border bg-muted flex items-center justify-center shrink-0">
                   <Box className="size-5 text-accent-brand" />
@@ -573,7 +573,7 @@ function DockerManagerInner({
           />
         ) : (
           <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
-            <Card className="flex-row items-center justify-between px-3 py-3 shrink-0 gap-0">
+            <Card className="flex-row flex-wrap items-center justify-between gap-2 px-3 py-3 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="size-10 border border-border bg-muted flex items-center justify-center shrink-0">
                   <Box className="size-5 text-accent-brand" />

@@ -130,7 +130,9 @@
     "removeVolumeTitle": "Xóa volume",
     "removeVolume": "Xóa volume '{{name}}'? Dữ liệu trong volume sẽ bị mất.",
     "volumeRemoved": "Đã xóa volume {{name}}",
-    "removeVolumeFailed": "Xóa volume thất bại: {{error}}"
+    "removeVolumeFailed": "Xóa volume thất bại: {{error}}",
+    "noHostSelected": "Chưa chọn host",
+    "noHostSelectedDesc": "Mở một tab terminal của host để quản lý Docker của host đó."
   },
   "nav": {
     "docker": "Docker"

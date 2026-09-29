@@ -30,14 +30,7 @@
     }
   ],
   "contributes": {
-    "tabs": [
-      {
-        "id": "session-logs",
-        "titleKey": "nav.sessionLogs",
-        "icon": "ScrollText",
-        "openFrom": ["rail"]
-      }
-    ],
+    "tabs": [],
     "permissions": [
       {
         "name": "view",
