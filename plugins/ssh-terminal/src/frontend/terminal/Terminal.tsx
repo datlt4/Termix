@@ -35,6 +35,7 @@ import { TmuxSessionPicker } from "./TmuxSessionPicker";
 import { getTerminalBufferText } from "./terminal-buffer-text.ts";
 import { getMacLineNavigationSequence } from "../lib/mac-line-navigation";
 import { useCommandTracker } from "./command-history/useCommandTracker";
+import { useHostApi } from "../lib/use-host-connection-origin";
 import {
   highlightTerminalOutput,
   updateControlStringMode,
@@ -117,7 +118,6 @@ import {
 import {
   useTranslation,
   invokeAction,
-  usePluginApi,
   useSlotContributions,
   getCustomKeybindings,
   getClientPreference,
@@ -200,7 +200,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     ref,
   ) {
     const { t } = useTranslation();
-    const api = usePluginApi();
+    // The host's sessions and per-host data (image uploads, command history)
+    // live on the backend its connection origin resolves to — the embedded
+    // local backend, or the linked remote server. A local-only client cannot
+    // find a remote-origin host's session, so image uploads 503 there.
+    const api = useHostApi(
+      hostConfig.connectionOrigin as "local" | "remote" | null | undefined,
+    );
     const { instance: terminal, ref: xtermRef } = useXTerm();
     const commandHistoryContext = useCommandHistory();
     const { confirmWithToast } = useConfirmation();
@@ -427,6 +433,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       useCommandTracker({
         hostId: hostConfig.id,
         enabled: commandHistoryTrackingEnabled,
+        api,
         onCommandExecuted: (command) => {
           if (!autocompleteHistory.current.includes(command)) {
             autocompleteHistory.current = [
