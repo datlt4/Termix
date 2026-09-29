@@ -12,6 +12,7 @@ import {
   GripVertical,
   ImagePlus,
   LayoutGrid,
+  Loader2,
   LogOut,
   Maximize2,
   Minimize2,
@@ -87,6 +88,8 @@ interface TerminalToolbarProps {
   isTmuxAttached: boolean;
   onTmuxDetach: () => void;
   isImageUploading: boolean;
+  /** 0-100 upload progress, or null while unknown (indeterminate). */
+  imageUploadProgress?: number | null;
   onUploadImage: (file: File) => void | Promise<void>;
   onPasteImage: () => void | Promise<void>;
   isFocused: boolean;
@@ -103,6 +106,7 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
   isTmuxAttached,
   onTmuxDetach,
   isImageUploading,
+  imageUploadProgress,
   onUploadImage,
   onPasteImage,
   isFocused,
@@ -567,8 +571,39 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
           }}
         />
         <span role="status" aria-live="polite" className="sr-only">
-          {isImageUploading ? t("terminalToolbar.uploadingImage") : ""}
+          {isImageUploading
+            ? `${t("terminalToolbar.uploadingImage")}${
+                typeof imageUploadProgress === "number"
+                  ? ` ${imageUploadProgress}%`
+                  : ""
+              }`
+            : ""}
         </span>
+        {isImageUploading && (
+          <div className="pointer-events-none absolute bottom-full mb-2 flex items-center gap-2 rounded-sm border border-border bg-background px-3 py-2 text-xs shadow-lg">
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-accent-brand" />
+            <span className="whitespace-nowrap">
+              {t("terminalToolbar.uploadingImage")}
+              {typeof imageUploadProgress === "number"
+                ? ` ${imageUploadProgress}%`
+                : ""}
+            </span>
+            <div className="h-1 w-24 overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn(
+                  "h-full rounded-full bg-accent-brand transition-[width] duration-150",
+                  imageUploadProgress == null &&
+                    "w-1/3 animate-pulse transition-none",
+                )}
+                style={
+                  imageUploadProgress != null
+                    ? { width: `${imageUploadProgress}%` }
+                    : undefined
+                }
+              />
+            </div>
+          </div>
+        )}
         {imageError && (
           <div
             role="alert"

@@ -112,7 +112,18 @@ export function LocalTerminal({
 
     async function readTextFromClipboard(): Promise<string> {
       const text = await readFromClipboard();
-      if (!text) toast.error(tRef.current("terminal.clipboardReadFailed"));
+      // An image-only clipboard has no text; the "permissions" message is
+      // misleading there, so skip it when the app can see an image.
+      if (!text) {
+        let hasImage = false;
+        try {
+          hasImage = !!(await window.electronAPI?.readClipboardImage?.());
+        } catch {
+          hasImage = false;
+        }
+        if (!hasImage)
+          toast.error(tRef.current("terminal.clipboardReadFailed"));
+      }
       return text;
     }
 

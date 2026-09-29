@@ -287,6 +287,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const [isSavingQuickConnect, setIsSavingQuickConnect] = useState(false);
     const [isQuickConnectSaved, setIsQuickConnectSaved] = useState(false);
     const [isImageUploading, setIsImageUploading] = useState(false);
+    // 0-100 while a request is in flight, null when unknown (no content
+    // length) so the toolbar can show an indeterminate bar instead.
+    const [imageUploadProgress, setImageUploadProgress] = useState<
+      number | null
+    >(null);
     const [isConnecting, setIsConnecting] = useState(false);
     const [isFitted, setIsFitted] = useState(false);
     const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -3548,6 +3553,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         return;
       }
       setIsImageUploading(true);
+      setImageUploadProgress(null);
       try {
         const form = buildImageUploadFormData(
           file,
@@ -3556,6 +3562,15 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         );
         const response = await api.post("/image-upload", form, {
           headers: { "Content-Type": undefined },
+          onUploadProgress: (event: { loaded?: number; total?: number }) => {
+            // total is 0/absent when the body has no known length; the
+            // toolbar then shows an indeterminate bar.
+            if (event.total && event.total > 0) {
+              setImageUploadProgress(
+                Math.min(100, Math.round((event.loaded / event.total) * 100)),
+              );
+            }
+          },
         });
         const { shellPath } = response.data as {
           shellPath: string;
@@ -3583,6 +3598,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         toast.error(code ? `${message} (${code})` : message);
       } finally {
         setIsImageUploading(false);
+        setImageUploadProgress(null);
       }
     }
 
@@ -3640,11 +3656,55 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           await handleImageUpload(clipboardFile, "clipboard");
           return;
         }
+        // Some Linux clipboard bridges make the Web Clipboard API "succeed"
+        // while omitting image entries; try the native clipboard before
+        // declaring the clipboard empty.
+        const nativeImageFile = await readNativeClipboardImage();
+        if (nativeImageFile) {
+          await handleImageUpload(nativeImageFile, "clipboard");
+          return;
+        }
         toast.error("No image found in the clipboard");
       } catch (error) {
+        // navigator.clipboard.read() can fail on Linux (Wayland portals, no
+        // session access from the renderer) even when the platform
+        // clipboard is readable. In the desktop app, fall back to the native
+        // clipboard through the main process.
+        const nativeImageFile = await readNativeClipboardImage();
+        if (nativeImageFile) {
+          await handleImageUpload(nativeImageFile, "clipboard");
+          return;
+        }
         toast.error(getErrorMessage(error, "Clipboard read failed"));
       } finally {
         setIsImageUploading(false);
+      }
+    }
+
+    /**
+     * The desktop app's native clipboard image, or null. Fallback for the
+     * paste-image button where navigator.clipboard.read() fails on Linux.
+     */
+    async function readNativeClipboardImage(): Promise<File | null> {
+      if (!isElectron()) return null;
+      const read = (
+        window as Window & {
+          electronAPI?: {
+            readClipboardImage?: () => Promise<string | null>;
+          };
+        }
+      ).electronAPI?.readClipboardImage;
+      if (!read) return null;
+      try {
+        const dataUrl = await read();
+        if (!dataUrl) return null;
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        return new File([blob], "clipboard-image.png", {
+          type: blob.type || "image/png",
+        });
+      } catch {
+        return null;
       }
     }
 
@@ -3730,6 +3790,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               }
             }}
             isImageUploading={isImageUploading}
+            imageUploadProgress={imageUploadProgress}
             onUploadImage={(file) => void handleImageUpload(file, "file")}
             onPasteImage={() => void handleClipboardImage()}
             isFocused={isFocusedPane}

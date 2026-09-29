@@ -3043,6 +3043,15 @@ ipcMain.handle("clipboard-write-text", (_event, text) => {
 
 ipcMain.handle("clipboard-read-text", () => clipboard.readText());
 
+// The renderer's navigator.clipboard.read() can fail on Linux (Wayland
+// portals, missing session access) even when the platform clipboard itself
+// is reachable from the main process. This is the fallback for the image
+// paste button in that case.
+ipcMain.handle("clipboard-read-image", () => {
+  const image = clipboard.readImage();
+  return image.isEmpty() ? null : image.toDataURL();
+});
+
 ipcMain.handle("local-terminal-start", (event, dimensions = {}) => {
   const cols = Math.min(500, Math.max(2, Number(dimensions.cols) || 80));
   const rows = Math.min(300, Math.max(1, Number(dimensions.rows) || 24));

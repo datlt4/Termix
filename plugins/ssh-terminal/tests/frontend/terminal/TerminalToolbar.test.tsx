@@ -436,6 +436,30 @@ describe("TerminalToolbar Phase 1", () => {
     ).toBeDisabled();
   });
 
+  it("shows a visible progress chip while an image upload is in flight", () => {
+    const { rerender, props } = renderToolbar();
+    rerender(
+      <TerminalToolbar {...props} isImageUploading imageUploadProgress={42} />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Uploading image… 42%",
+    );
+    // The visible chip (no role) repeats the percentage for sighted users.
+    expect(
+      screen.getAllByText("Uploading image… 42%").length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shows an indeterminate chip when the upload has no total", () => {
+    const { rerender, props } = renderToolbar();
+    rerender(<TerminalToolbar {...props} isImageUploading />);
+    expect(screen.getByRole("status")).toHaveTextContent("Uploading image…");
+    // Chip and sr-only line, no percentage anywhere.
+    expect(
+      screen.getAllByText("Uploading image…").length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
   it("hides clearly, leaves recovery, and closes open UI on disconnect", async () => {
     const user = userEvent.setup();
     const { rerender, props } = renderToolbar();
