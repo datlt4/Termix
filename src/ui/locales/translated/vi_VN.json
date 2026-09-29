@@ -416,7 +416,9 @@
     "keepSideMenuOpen": "Giữ menu luôn mở",
     "collapseSideMenu": "Menu thu gọn",
     "roleAdministrator": "Quản trị viên",
-    "roleUser": "Người dùng"
+    "roleUser": "Người dùng",
+    "closeTabsToRight": "Đóng tab phía bên phải",
+    "closeAllTabs": "Đóng tất cả tab"
   },
   "hosts": {
     "hosts": "Máy chủ",

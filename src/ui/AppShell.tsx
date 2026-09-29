@@ -1798,6 +1798,10 @@ export function AppShell({
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      // The desktop app quits when its window closes — never hold the
+      // shutdown up with a "leave site" prompt. The guard stays for the
+      // web build, where an open browser tab still loses live sessions.
+      if (isElectron()) return;
       if (!hasActiveConnection()) return;
 
       event.preventDefault();
@@ -1861,6 +1865,87 @@ export function AppShell({
         ];
       return next;
     });
+  }
+
+  /** Closes several tabs in one pass (bulk actions from the tab menu). */
+  function doCloseTabs(ids: string[]) {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+
+    for (const id of ids) {
+      const tab = tabs.find((t) => t.id === id);
+      if (tab) {
+        if (tab.terminalRef?.current?.disconnect) {
+          tab.terminalRef.current.disconnect();
+        }
+        if (tab.instanceId && isPersistentTabType(tab.type)) {
+          deleteOpenTab(tab.instanceId).catch(() => {});
+        }
+      }
+      terminalRefs.current.delete(id);
+    }
+
+    let working = tabs;
+    for (const id of ids) {
+      const tabToClose = working.find((t) => t.id === id);
+      if (!tabToClose) continue;
+      working =
+        tabToClose.type === "split-screen"
+          ? releaseSplitTabs(working, id)
+          : working
+              .filter((tab) => tab.id !== id)
+              .map((tab) =>
+                tab.type === "split-screen" && tab.splitConfig
+                  ? {
+                      ...tab,
+                      splitConfig: {
+                        ...tab.splitConfig,
+                        paneTabIds: tab.splitConfig.paneTabIds.map((paneId) =>
+                          paneId === id ? null : paneId,
+                        ),
+                      },
+                    }
+                  : tab,
+              );
+    }
+
+    const next =
+      working.length === 0
+        ? [
+            {
+              id: "dashboard",
+              instanceId: "dashboard",
+              type: "dashboard",
+              label: t("nav.dashboard"),
+              openedAt: Date.now(),
+            },
+          ]
+        : working;
+
+    if (idSet.has(activeTabId)) {
+      const remaining = working.filter((tab) => !tab.parentSplitTabId);
+      setActiveTabId(
+        remaining.length > 0 ? remaining[remaining.length - 1].id : "dashboard",
+      );
+    }
+    setPaneTabIds((prev) => prev.map((p) => (p && idSet.has(p) ? null : p)));
+    setTabs(next);
+  }
+
+  /** Tab context menu bulk actions: "to the right" is visual bar order. */
+  function closeTabsByAction(
+    action: "toTheRight" | "all",
+    contextTabId: string,
+  ) {
+    let ids: string[];
+    if (action === "all") {
+      ids = tabs.filter((tab) => tab.type !== "dashboard").map((tab) => tab.id);
+    } else {
+      const topIds = topLevelTabs.map((tab) => tab.id);
+      const idx = topIds.indexOf(contextTabId);
+      ids = idx >= 0 ? topIds.slice(idx + 1) : [];
+    }
+    doCloseTabs(ids);
   }
 
   function refreshTab(id: string) {
@@ -2721,6 +2806,7 @@ export function AppShell({
                 focusedPaneIndex={focusedPaneIndex}
                 onSetActiveTab={setActiveTabId}
                 onCloseTab={closeTab}
+                onCloseTabs={closeTabsByAction}
                 onRefreshTab={refreshTab}
                 onReorderTabs={reorderTopLevelTabs}
                 onSplitTab={splitTabQuick}
