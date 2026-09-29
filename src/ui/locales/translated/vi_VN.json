@@ -2357,7 +2357,7 @@
         "themeTokyoNight": "Tokyo Night",
         "themeOneDark": "One Dark",
         "themeGruvbox": "Gruvbox",
-        "terminalAppearanceTitle": "Terminal",
+        "terminalAppearanceTitle": "Giao diện Terminal",
         "terminalApplyToAllHosts": "Áp dụng cho toàn bộ host",
         "terminalApplyAllConfirm": "Áp dụng cài đặt terminal này cho toàn bộ host và local terminal?",
         "terminalAppliedToAll": "Đã áp dụng cho {{count}} host và local terminal",

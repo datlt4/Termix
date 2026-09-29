@@ -698,18 +698,19 @@ export function UserProfilePanel({
   const terminalConfig = { ...DEFAULT_TERMINAL_CONFIG, ...terminalDraft };
 
   const handleApplyToAllHosts = async () => {
-    const fields: Record<string, unknown> = {};
-    const put = (key: string, value: unknown) => {
-      if (value !== undefined) fields[key] = value;
+    // Apply the full effective appearance (exactly what the preview shows)
+    // so every host ends up with a complete, explicit terminalConfig.
+    const fields: Record<string, unknown> = {
+      theme: terminalConfig.theme,
+      fontFamily: terminalConfig.fontFamily,
+      fontSize: terminalConfig.fontSize,
+      cursorStyle: terminalConfig.cursorStyle,
+      letterSpacing: terminalConfig.letterSpacing,
+      lineHeight: terminalConfig.lineHeight,
     };
-    put("theme", terminalDraft.theme);
-    put("customThemeColors", terminalDraft.customThemeColors);
-    put("fontFamily", terminalDraft.fontFamily);
-    put("fontSize", terminalDraft.fontSize);
-    put("cursorStyle", terminalDraft.cursorStyle);
-    put("letterSpacing", terminalDraft.letterSpacing);
-    put("lineHeight", terminalDraft.lineHeight);
-    if (Object.keys(fields).length === 0) return;
+    if (terminalConfig.theme === "custom" && terminalConfig.customThemeColors) {
+      fields.customThemeColors = terminalConfig.customThemeColors;
+    }
     if (
       !window.confirm(t("newUi.sidebar.userProfile.terminalApplyAllConfirm"))
     ) {
@@ -726,6 +727,9 @@ export function UserProfilePanel({
       const failed = results.length - ok;
       // The desktop local terminal has no host; mirror the settings there.
       saveLocalTerminalSettings(fields as Partial<LocalTerminalSettings>);
+      // Let the host sidebar and editor refetch so they show the applied
+      // values immediately, without an app reload.
+      window.dispatchEvent(new CustomEvent("termix:hosts-changed"));
       if (failed === 0) {
         toast.success(
           t("newUi.sidebar.userProfile.terminalAppliedToAll", {
