@@ -87,16 +87,16 @@ export function activate(app: TermixApp): void {
     preload: () => import("./DockerManager"),
   });
 
-  // Hidden from the left rail but dockable to the right: toggling the right
-  // sidebar opens the Docker manager for the active host instead of the
-  // session-logs panel this fork removed.
+  // The right dock is this panel's home in the fork: toggling the right
+  // sidebar opens the Docker manager for the active host. It is the only
+  // rightDockable view (core reference panels dropped that flag), so it is
+  // the right dock's default. It also appears on the left rail.
   app.registerRailItem({
     id: "docker",
     icon: Box,
     titleKey: "nav.docker",
     kind: "panel",
     rightDockable: true,
-    hidden: true,
     permission: "use",
   });
 

@@ -80,7 +80,6 @@ export function activate(app: TermixApp): void {
         icon: Sparkles,
         titleKey: "nav.ai",
         promotable: true,
-        rightDockable: true,
         after: "macros",
         order: 40,
         // Off for everyone: not even a Navigation toggle.

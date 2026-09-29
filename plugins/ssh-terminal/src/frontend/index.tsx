@@ -143,7 +143,6 @@ export function activate(app: TermixApp): void {
     titleKey: "nav.history",
     hideable: true,
     promotable: true,
-    rightDockable: true,
     separatorAfter: true,
   });
 

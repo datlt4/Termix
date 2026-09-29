@@ -50,7 +50,6 @@ export function activate(app: TermixApp): void {
     placement: "footer",
     simplePreset: true,
     promotable: true,
-    rightDockable: true,
     separatorAfter: false,
     permission: "use",
     useBadge: () => useUnreadCount(store),

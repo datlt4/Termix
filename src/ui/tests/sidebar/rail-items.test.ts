@@ -118,8 +118,11 @@ describe("RAIL_ITEMS", () => {
     }
   });
 
-  it("only offers reference panels in the right dock", () => {
-    expect(rightDockableIds()).toEqual(["connections", "ssh-tools", "macros"]);
+  it("keeps the right dock for plugin-provided per-host panels", () => {
+    // fork policy: core reference panels (connections, ssh-tools, macros) are
+    // left-dock / tab only; the right dock hosts plugin panels such as the
+    // per-host Docker manager, so the core set contributes none.
+    expect(rightDockableIds()).toEqual([]);
   });
 });
 

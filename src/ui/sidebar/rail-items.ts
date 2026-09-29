@@ -86,7 +86,9 @@ export const RAIL_ITEMS: RailItemDef[] = [
     icon: Plug,
     labelKey: "nav.connections",
     separatorAfter: true,
-    rightDockable: true,
+    // fork: the right dock is reserved for the per-host Docker manager
+    // (the docker plugin registers the only rightDockable panel), so core
+    // reference panels stay left-dock / tab only.
   },
   {
     id: "quick-connect",
@@ -102,7 +104,6 @@ export const RAIL_ITEMS: RailItemDef[] = [
     separatorAfter: true,
     mobilePrimary: true,
     promotable: true,
-    rightDockable: true,
   },
   {
     id: "macros",
@@ -110,7 +111,6 @@ export const RAIL_ITEMS: RailItemDef[] = [
     labelKey: "nav.macros",
     separatorAfter: true,
     promotable: true,
-    rightDockable: true,
   },
   {
     id: "split-screen",
