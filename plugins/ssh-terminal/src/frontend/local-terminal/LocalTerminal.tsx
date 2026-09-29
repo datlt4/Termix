@@ -18,6 +18,9 @@ import {
   RobustClipboardProvider,
   copyToClipboard,
   readFromClipboard,
+  getLocalTerminalSettings,
+  subscribeLocalTerminalSettings,
+  type LocalTerminalSettings,
 } from "@termix/plugin-sdk/ui";
 import { useTranslation } from "@termix/plugin-sdk/frontend";
 
@@ -40,6 +43,15 @@ export function LocalTerminal({
   const sessionIdRef = useRef<string | null>(null);
   const [isWindows, setIsWindows] = useState(false);
   const [shell, setShell] = useState<"default" | "wsl">("default");
+  const [localSettings, setLocalSettings] = useState<LocalTerminalSettings>(
+    () => getLocalTerminalSettings(),
+  );
+
+  // The User Profile's Terminal section writes these (Apply to all hosts),
+  // so follow changes live without tearing the shell down.
+  useEffect(() => subscribeLocalTerminalSettings(setLocalSettings), []);
+
+  const terminalConfig = { ...DEFAULT_TERMINAL_CONFIG, ...localSettings };
 
   useEffect(() => {
     window.electronAPI?.getPlatform().then((platform) => {
@@ -63,15 +75,23 @@ export function LocalTerminal({
 
   useEffect(() => {
     if (!terminal) return;
-    const colors = resolveTermixThemeColors("termix", appTheme);
+    const colors = resolveTermixThemeColors(
+      terminalConfig.theme,
+      appTheme,
+      terminalConfig.customThemeColors,
+    );
     const font = TERMINAL_FONTS.find(
-      (item) => item.value === DEFAULT_TERMINAL_CONFIG.fontFamily,
+      (item) => item.value === terminalConfig.fontFamily,
     );
     ensureTerminalFontsLoaded(font?.value ?? TERMINAL_FONTS[0].value);
     terminal.options.theme = colors;
     terminal.options.fontFamily = font?.fallback ?? TERMINAL_FONTS[0].fallback;
-    terminal.options.fontSize = DEFAULT_TERMINAL_CONFIG.fontSize;
-  }, [appTheme, terminal]);
+    terminal.options.fontSize = terminalConfig.fontSize;
+    terminal.options.cursorStyle = terminalConfig.cursorStyle;
+    terminal.options.cursorBlink = terminalConfig.cursorBlink;
+    terminal.options.letterSpacing = terminalConfig.letterSpacing;
+    terminal.options.lineHeight = terminalConfig.lineHeight;
+  }, [appTheme, terminal, terminalConfig]);
 
   useEffect(() => {
     if (!terminal || !window.electronAPI?.isElectron) return;

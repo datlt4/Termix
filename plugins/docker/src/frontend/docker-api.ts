@@ -6,9 +6,11 @@ import {
 import type { ConnectionStage } from "@termix/plugin-sdk/ui";
 import type {
   DockerContainer,
+  DockerImage,
   DockerLogOptions,
   DockerStats,
   DockerValidation,
+  DockerVolume,
 } from "./types";
 
 export interface ApiConnectionLog {
@@ -158,6 +160,40 @@ export function createDockerApi(api: PluginApiClient) {
     stats: (sessionId: string, containerId: string) =>
       call<DockerStats>("load container stats", () =>
         api.get(`/containers/${sessionId}/${containerId}/stats`),
+      ),
+
+    listImages: (sessionId: string) =>
+      call<DockerImage[]>("list images", () => api.get(`/images/${sessionId}`)),
+
+    pullImage: (sessionId: string, reference: string) =>
+      call<{ success: boolean; message: string; output?: string }>(
+        `pull image ${reference}`,
+        () =>
+          api.post(`/images/${sessionId}/pull`, { reference }, { timeout: 0 }),
+      ),
+
+    removeImage: (sessionId: string, imageId: string, force = false) =>
+      call<{ success: boolean; message: string }>("remove the image", () =>
+        api.delete(`/images/${sessionId}/${imageId}`, {
+          params: { force },
+        }),
+      ),
+
+    listVolumes: (sessionId: string) =>
+      call<DockerVolume[]>("list volumes", () =>
+        api.get(`/volumes/${sessionId}`),
+      ),
+
+    createVolume: (sessionId: string, name: string) =>
+      call<{ success: boolean; message: string }>("create the volume", () =>
+        api.post(`/volumes/${sessionId}`, { name }),
+      ),
+
+    removeVolume: (sessionId: string, volumeName: string, force = false) =>
+      call<{ success: boolean; message: string }>("remove the volume", () =>
+        api.delete(`/volumes/${sessionId}/${volumeName}`, {
+          params: { force },
+        }),
       ),
   };
 }

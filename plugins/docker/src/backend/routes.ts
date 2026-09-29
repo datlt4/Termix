@@ -995,4 +995,321 @@ export function registerRoutes(router: Router, { ctx, sessions, log }: Deps) {
       });
     }
   });
+
+  // ----- Images and volumes ---------------------------------------------------
+  // Image references and volume names are interpolated into shell commands
+  // that run on the remote host, so every one of them is validated against a
+  // strict allowlist before it is executed.
+
+  const IMAGE_REF_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{0,255}$/;
+  const IMAGE_ID_RE = /^[a-f0-9]{12,64}$/;
+  const VOLUME_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$/;
+
+  const IMAGES_FORMAT_UNIX = `'{"repository":"{{.Repository}}","tag":"{{.Tag}}","id":"{{.ID}}","size":"{{.Size}}","createdAt":"{{.CreatedAt}}","createdSince":"{{.CreatedSince}}"}' `;
+  const IMAGES_FORMAT_WINDOWS = `"{\\"repository\\":\\"{{.Repository}}\\",\\"tag\\":\\"{{.Tag}}\\",\\"id\\":\\"{{.ID}}\\",\\"size\\":\\"{{.Size}}\\",\\"createdAt\\":\\"{{.CreatedAt}}\\",\\"createdSince\\":\\"{{.CreatedSince}}\\"}"`;
+  const VOLUMES_FORMAT_UNIX = `'{"name":"{{.Name}}","driver":"{{.Driver}}"}' `;
+  const VOLUMES_FORMAT_WINDOWS = `"{\\"name\\":\\"{{.Name}}\\",\\"driver\\":\\"{{.Driver}}\\"}"`;
+
+  /** Parses `images --format` / `volume ls --format` output line by line. */
+  function parseJsonLines(output: string): Record<string, unknown>[] {
+    return output
+      .split("\n")
+      .filter((line) => line.trim())
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line) as Record<string, unknown>];
+        } catch {
+          return [];
+        }
+      });
+  }
+
+  /**
+   * @openapi
+   * /plugin-api/docker/images/{sessionId}:
+   *   get:
+   *     summary: List images on the session's host
+   *     tags:
+   *       - Docker
+   *     responses:
+   *       200:
+   *         description: A list of images.
+   *       400:
+   *         description: SSH session not found or not connected.
+   *       500:
+   *         description: Failed to list images.
+   */
+  router.get("/images/:sessionId", async (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    try {
+      const output = await sessions.run(session, () =>
+        sessions.exec(
+          session,
+          containerCommand(
+            session.runtime,
+            `images --format ${
+              session.isWindows ? IMAGES_FORMAT_WINDOWS : IMAGES_FORMAT_UNIX
+            }`,
+          ),
+        ),
+      );
+      res.json(parseJsonLines(output));
+    } catch (error) {
+      log.error("Failed to list Docker images", error, {
+        hostId: session.hostId,
+      });
+      res.status(500).json({
+        error: getErrorMessage(error, "Failed to list images"),
+      });
+    }
+  });
+
+  /**
+   * @openapi
+   * /plugin-api/docker/images/{sessionId}/pull:
+   *   post:
+   *     summary: Pull an image on the session's host
+   *     tags:
+   *       - Docker
+   *     responses:
+   *       200:
+   *         description: The image was pulled.
+   *       400:
+   *         description: Invalid image reference, or SSH session not found.
+   *       500:
+   *         description: The pull failed.
+   */
+  router.post("/images/:sessionId/pull", async (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const reference = String(req.body?.reference ?? "").trim();
+    if (!IMAGE_REF_RE.test(reference)) {
+      return res.status(400).json({
+        error: "Invalid image reference",
+        code: "IMAGE_REF_INVALID",
+      });
+    }
+    try {
+      log.info("Docker image pull", {
+        hostId: session.hostId,
+        reference,
+      });
+      const output = await sessions.run(session, () =>
+        sessions.exec(
+          session,
+          containerCommand(session.runtime, `pull ${reference}`),
+        ),
+      );
+      res.json({
+        success: true,
+        message: `Pulled ${reference}`,
+        output: output.trim(),
+      });
+    } catch (error) {
+      log.error("Failed to pull Docker image", error, {
+        hostId: session.hostId,
+        reference,
+      });
+      res.status(500).json({
+        success: false,
+        error: getErrorMessage(error, "Failed to pull image"),
+      });
+    }
+  });
+
+  /**
+   * @openapi
+   * /plugin-api/docker/images/{sessionId}/{imageId}:
+   *   delete:
+   *     summary: Remove an image on the session's host
+   *     tags:
+   *       - Docker
+   *     responses:
+   *       200:
+   *         description: The image was removed.
+   *       400:
+   *         description: Invalid image ID, or SSH session not found.
+   *       500:
+   *         description: The removal failed (for example, in use by a container).
+   */
+  router.delete("/images/:sessionId/:imageId", async (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const { imageId } = req.params;
+    if (!IMAGE_ID_RE.test(imageId)) {
+      return res.status(400).json({
+        error: "Invalid image ID",
+        code: "IMAGE_ID_INVALID",
+      });
+    }
+    const force = req.query.force === "true";
+    try {
+      log.info("Docker image remove", {
+        hostId: session.hostId,
+        imageId,
+        force,
+      });
+      await sessions.run(session, () =>
+        sessions.exec(
+          session,
+          containerCommand(
+            session.runtime,
+            `rmi ${force ? "-f " : ""}${imageId}`,
+          ),
+        ),
+      );
+      res.json({ success: true, message: `Removed image ${imageId}` });
+    } catch (error) {
+      log.error("Failed to remove Docker image", error, {
+        hostId: session.hostId,
+        imageId,
+      });
+      res.status(500).json({
+        success: false,
+        error: getErrorMessage(error, "Failed to remove image"),
+      });
+    }
+  });
+
+  /**
+   * @openapi
+   * /plugin-api/docker/volumes/{sessionId}:
+   *   get:
+   *     summary: List volumes on the session's host
+   *     tags:
+   *       - Docker
+   *     responses:
+   *       200:
+   *         description: A list of volumes.
+   *       400:
+   *         description: SSH session not found or not connected.
+   *       500:
+   *         description: Failed to list volumes.
+   */
+  router.get("/volumes/:sessionId", async (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    try {
+      const output = await sessions.run(session, () =>
+        sessions.exec(
+          session,
+          containerCommand(
+            session.runtime,
+            `volume ls --format ${
+              session.isWindows ? VOLUMES_FORMAT_WINDOWS : VOLUMES_FORMAT_UNIX
+            }`,
+          ),
+        ),
+      );
+      res.json(parseJsonLines(output));
+    } catch (error) {
+      log.error("Failed to list Docker volumes", error, {
+        hostId: session.hostId,
+      });
+      res.status(500).json({
+        error: getErrorMessage(error, "Failed to list volumes"),
+      });
+    }
+  });
+
+  /**
+   * @openapi
+   * /plugin-api/docker/volumes/{sessionId}:
+   *   post:
+   *     summary: Create a volume on the session's host
+   *     tags:
+   *       - Docker
+   *     responses:
+   *       200:
+   *         description: The volume was created.
+   *       400:
+   *         description: Invalid volume name, or SSH session not found.
+   *       500:
+   *         description: The creation failed.
+   */
+  router.post("/volumes/:sessionId", async (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const name = String(req.body?.name ?? "").trim();
+    if (!VOLUME_NAME_RE.test(name)) {
+      return res.status(400).json({
+        error: "Invalid volume name",
+        code: "VOLUME_NAME_INVALID",
+      });
+    }
+    try {
+      log.info("Docker volume create", { hostId: session.hostId, name });
+      await sessions.run(session, () =>
+        sessions.exec(
+          session,
+          containerCommand(session.runtime, `volume create ${name}`),
+        ),
+      );
+      res.json({ success: true, message: `Created volume ${name}` });
+    } catch (error) {
+      log.error("Failed to create Docker volume", error, {
+        hostId: session.hostId,
+        name,
+      });
+      res.status(500).json({
+        success: false,
+        error: getErrorMessage(error, "Failed to create volume"),
+      });
+    }
+  });
+
+  /**
+   * @openapi
+   * /plugin-api/docker/volumes/{sessionId}/{volumeName}:
+   *   delete:
+   *     summary: Remove a volume on the session's host
+   *     tags:
+   *       - Docker
+   *     responses:
+   *       200:
+   *         description: The volume was removed.
+   *       400:
+   *         description: Invalid volume name, or SSH session not found.
+   *       500:
+   *         description: The removal failed.
+   */
+  router.delete("/volumes/:sessionId/:volumeName", async (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const { volumeName } = req.params;
+    if (!VOLUME_NAME_RE.test(volumeName)) {
+      return res.status(400).json({
+        error: "Invalid volume name",
+        code: "VOLUME_NAME_INVALID",
+      });
+    }
+    const force = req.query.force === "true";
+    try {
+      log.info("Docker volume remove", {
+        hostId: session.hostId,
+        volumeName,
+        force,
+      });
+      await sessions.run(session, () =>
+        sessions.exec(
+          session,
+          containerCommand(
+            session.runtime,
+            `volume rm ${force ? "-f " : ""}${volumeName}`,
+          ),
+        ),
+      );
+      res.json({ success: true, message: `Removed volume ${volumeName}` });
+    } catch (error) {
+      log.error("Failed to remove Docker volume", error, {
+        hostId: session.hostId,
+        volumeName,
+      });
+      res.status(500).json({
+        success: false,
+        error: getErrorMessage(error, "Failed to remove volume"),
+      });
+    }
+  });
 }

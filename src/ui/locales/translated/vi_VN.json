@@ -2356,7 +2356,13 @@
         "themeSolarized": "Solarized",
         "themeTokyoNight": "Tokyo Night",
         "themeOneDark": "One Dark",
-        "themeGruvbox": "Gruvbox"
+        "themeGruvbox": "Gruvbox",
+        "terminalAppearanceTitle": "Terminal",
+        "terminalApplyToAllHosts": "Áp dụng cho toàn bộ host",
+        "terminalApplyAllConfirm": "Áp dụng cài đặt terminal này cho toàn bộ host và local terminal?",
+        "terminalAppliedToAll": "Đã áp dụng cho {{count}} host và local terminal",
+        "terminalAppliedPartially": "Đã áp dụng cho {{ok}} host, {{failed}} lỗi",
+        "terminalApplyFailed": "Không thể áp dụng cài đặt terminal"
       }
     }
   },

@@ -3052,6 +3052,28 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           }
         }
 
+        // Shift+Enter inserts a newline instead of submitting. xterm.js
+        // sends a plain CR for Shift+Enter (shift is ignored for Enter),
+        // so emit the same bytes xterm sends for Alt+Enter (ESC + CR): AI
+        // CLIs such as Claude Code and OpenCode treat that as the newline
+        // key. Identical on every platform, including macOS.
+        if (
+          e.key === "Enter" &&
+          e.shiftKey &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          !e.metaKey
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (webSocketRef.current?.readyState === 1) {
+            webSocketRef.current.send(
+              JSON.stringify({ type: "input", data: "\x1b\r" }),
+            );
+          }
+          return false;
+        }
+
         if (
           showSearchRef.current &&
           e.key === "Escape" &&

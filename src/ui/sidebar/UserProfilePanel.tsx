@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { AuthEnrollmentSections } from "./AuthEnrollmentSections";
 import { useTranslation } from "react-i18next";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -74,6 +74,27 @@ import { changeAppLanguage, normalizeLanguageCode } from "@/i18n/i18n";
 import { Select2 } from "@/components/select2";
 import { clearLocalAdaptivePreferences } from "@/lib/local-adaptive-preferences";
 import { ConnectionDefaultsSettings } from "./ConnectionDefaultsSettings";
+import { useConnectionDefaults } from "@/contexts/ConnectionDefaultsContext";
+import type { TerminalDefaults } from "@/lib/connection-defaults";
+import {
+  CURSOR_STYLES,
+  DEFAULT_TERMINAL_CONFIG,
+  TERMINAL_FONTS,
+  TERMINAL_THEMES,
+} from "@/lib/terminal-themes";
+import {
+  TERMINAL_FONT_ZOOM_MAX,
+  TERMINAL_FONT_ZOOM_MIN,
+} from "@/lib/terminal-look/terminal-font-zoom";
+import { TerminalPreview } from "@/components/terminal-preview/TerminalPreview";
+import { Slider } from "@/components/slider";
+import { getSSHHosts } from "@/api/ssh-host-management-api";
+import { updateHostTerminalAppearance } from "@/api/host-terminal-config-api";
+import {
+  saveLocalTerminalSettings,
+  type LocalTerminalSettings,
+} from "@/lib/local-terminal-settings";
+import { parseCustomThemes, type SavedCustomTheme } from "@/api/open-tabs-api";
 import {
   FeatureSettingsSection,
   featureSectionId,
@@ -620,6 +641,111 @@ export function UserProfilePanel({
       setStorageMode(userPrefs.storageMode === "cloud" ? "cloud" : "local");
     }
   }, [userPrefs?.storageMode]);
+
+  // Terminal defaults (Appearance → Terminal). Persisted in the user's
+  // preferences (terminalDefaults) and mirrored to the local terminal.
+  const {
+    ready: terminalDefaultsReady,
+    terminal: userTerminalDefaults,
+    saveTerminalDefaults,
+  } = useConnectionDefaults();
+  const [terminalDraft, setTerminalDraft] = useState<TerminalDefaults>({});
+  const [isCustomTerminalFont, setIsCustomTerminalFont] = useState(false);
+  const [savedTerminalThemes, setSavedTerminalThemes] = useState<
+    SavedCustomTheme[]
+  >([]);
+  const [applyingToAllHosts, setApplyingToAllHosts] = useState(false);
+  const terminalSaveTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (terminalDefaultsReady) setTerminalDraft(userTerminalDefaults);
+  }, [terminalDefaultsReady, userTerminalDefaults]);
+
+  useEffect(() => {
+    getUserPreferences()
+      .then((prefs) =>
+        setSavedTerminalThemes(parseCustomThemes(prefs.customThemes)),
+      )
+      .catch(() => {});
+  }, []);
+
+  // Debounced: sliders fire on every drag step, so batch the writes.
+  const updateTerminalDraft = useCallback(
+    (updater: (current: TerminalDefaults) => TerminalDefaults) => {
+      setTerminalDraft((current) => {
+        const next = updater(current);
+        if (terminalSaveTimer.current) {
+          window.clearTimeout(terminalSaveTimer.current);
+        }
+        terminalSaveTimer.current = window.setTimeout(() => {
+          void saveTerminalDefaults(next).catch(() => {});
+        }, 400);
+        return next;
+      });
+    },
+    [saveTerminalDefaults],
+  );
+
+  useEffect(
+    () => () => {
+      if (terminalSaveTimer.current) {
+        window.clearTimeout(terminalSaveTimer.current);
+      }
+    },
+    [],
+  );
+
+  const terminalConfig = { ...DEFAULT_TERMINAL_CONFIG, ...terminalDraft };
+
+  const handleApplyToAllHosts = async () => {
+    const fields: Record<string, unknown> = {};
+    const put = (key: string, value: unknown) => {
+      if (value !== undefined) fields[key] = value;
+    };
+    put("theme", terminalDraft.theme);
+    put("customThemeColors", terminalDraft.customThemeColors);
+    put("fontFamily", terminalDraft.fontFamily);
+    put("fontSize", terminalDraft.fontSize);
+    put("cursorStyle", terminalDraft.cursorStyle);
+    put("letterSpacing", terminalDraft.letterSpacing);
+    put("lineHeight", terminalDraft.lineHeight);
+    if (Object.keys(fields).length === 0) return;
+    if (
+      !window.confirm(t("newUi.sidebar.userProfile.terminalApplyAllConfirm"))
+    ) {
+      return;
+    }
+    setApplyingToAllHosts(true);
+    try {
+      const hosts = await getSSHHosts({ includeStatus: false });
+      const targets = hosts.filter((host) => typeof host.id === "number");
+      const results = await Promise.allSettled(
+        targets.map((host) => updateHostTerminalAppearance(host.id, fields)),
+      );
+      const ok = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - ok;
+      // The desktop local terminal has no host; mirror the settings there.
+      saveLocalTerminalSettings(fields as Partial<LocalTerminalSettings>);
+      if (failed === 0) {
+        toast.success(
+          t("newUi.sidebar.userProfile.terminalAppliedToAll", {
+            count: targets.length,
+          }),
+        );
+      } else {
+        toast.error(
+          t("newUi.sidebar.userProfile.terminalAppliedPartially", {
+            ok,
+            failed,
+          }),
+        );
+      }
+    } catch {
+      toast.error(t("newUi.sidebar.userProfile.terminalApplyFailed"));
+    } finally {
+      setApplyingToAllHosts(false);
+    }
+  };
 
   // On the desktop app, the account it is linked to on a server, if any.
   // "Cloud" storage only has somewhere to go once it is linked.
@@ -1703,6 +1829,245 @@ export function UserProfilePanel({
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
               {t("newUi.sidebar.userProfile.settingsTerminal")}
             </span>
+
+            {/* Terminal appearance defaults + apply-to-all-hosts */}
+            <div className="flex flex-col gap-2 border-b border-border pb-3 mb-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  {t("newUi.sidebar.userProfile.terminalAppearanceTitle")}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-[10px] shrink-0"
+                  disabled={applyingToAllHosts}
+                  onClick={() => void handleApplyToAllHosts()}
+                >
+                  <RotateCcw
+                    className={`size-3 ${applyingToAllHosts ? "animate-spin" : ""}`}
+                  />
+                  {t("newUi.sidebar.userProfile.terminalApplyToAllHosts")}
+                </Button>
+              </div>
+              <TerminalPreview
+                theme={terminalConfig.theme}
+                fontSize={terminalConfig.fontSize}
+                fontFamily={terminalConfig.fontFamily}
+                cursorStyle={terminalConfig.cursorStyle}
+                cursorBlink={terminalConfig.cursorBlink}
+                letterSpacing={terminalConfig.letterSpacing}
+                lineHeight={terminalConfig.lineHeight}
+                customThemeColors={terminalConfig.customThemeColors}
+              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    {t("hosts.colorTheme")}
+                  </span>
+                  <Select2
+                    value={terminalDraft.theme ?? "termix"}
+                    onChange={(e) => {
+                      const newTheme = e.target.value;
+                      updateTerminalDraft((cur) => ({
+                        ...cur,
+                        theme: newTheme,
+                        customThemeColors:
+                          newTheme === "custom" && !cur.customThemeColors
+                            ? { ...TERMINAL_THEMES.termixDark.colors }
+                            : cur.customThemeColors,
+                      }));
+                    }}
+                    className="h-8 px-2.5 py-1 text-xs bg-background border border-border text-foreground outline-none focus:ring-1 focus:ring-ring w-full"
+                  >
+                    {Object.entries(TERMINAL_THEMES)
+                      .filter(
+                        ([key]) =>
+                          key !== "termixDark" && key !== "termixLight",
+                      )
+                      .map(([key, theme]) => (
+                        <option key={key} value={key}>
+                          {theme.name}
+                        </option>
+                      ))}
+                  </Select2>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    {t("hosts.fontFamilyLabel")}
+                  </span>
+                  <Select2
+                    value={
+                      isCustomTerminalFont
+                        ? "__custom__"
+                        : (terminalDraft.fontFamily ??
+                          DEFAULT_TERMINAL_CONFIG.fontFamily)
+                    }
+                    onChange={(e) => {
+                      if (e.target.value === "__custom__") {
+                        setIsCustomTerminalFont(true);
+                        updateTerminalDraft((cur) => ({
+                          ...cur,
+                          fontFamily: "",
+                        }));
+                      } else {
+                        setIsCustomTerminalFont(false);
+                        updateTerminalDraft((cur) => ({
+                          ...cur,
+                          fontFamily: e.target.value,
+                        }));
+                      }
+                    }}
+                    className="h-8 px-2.5 py-1 text-xs font-mono bg-background border border-border text-foreground outline-none focus:ring-1 focus:ring-ring w-full"
+                  >
+                    {TERMINAL_FONTS.map((f) => (
+                      <option key={f.value} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                    <option value="__custom__">
+                      {t("hosts.fontFamilyCustomOption")}
+                    </option>
+                  </Select2>
+                  {isCustomTerminalFont && (
+                    <Input
+                      value={terminalDraft.fontFamily ?? ""}
+                      onChange={(e) =>
+                        updateTerminalDraft((cur) => ({
+                          ...cur,
+                          fontFamily: e.target.value,
+                        }))
+                      }
+                      placeholder={t("hosts.fontFamilyCustomPlaceholder")}
+                      className="h-8 text-xs font-mono"
+                    />
+                  )}
+                </div>
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      {t("hosts.fontSizeLabel")}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                      {terminalConfig.fontSize}px
+                    </span>
+                  </div>
+                  <Slider
+                    min={TERMINAL_FONT_ZOOM_MIN}
+                    max={TERMINAL_FONT_ZOOM_MAX}
+                    step={1}
+                    value={[terminalConfig.fontSize]}
+                    onValueChange={([v]) =>
+                      updateTerminalDraft((cur) => ({
+                        ...cur,
+                        fontSize: v,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    {t("hosts.cursorStyleLabel")}
+                  </span>
+                  <Select2
+                    value={terminalConfig.cursorStyle}
+                    onChange={(e) =>
+                      updateTerminalDraft((cur) => ({
+                        ...cur,
+                        cursorStyle: e.target
+                          .value as TerminalDefaults["cursorStyle"],
+                      }))
+                    }
+                    className="h-8 px-2.5 py-1 text-xs bg-background border border-border text-foreground outline-none focus:ring-1 focus:ring-ring w-full"
+                  >
+                    {CURSOR_STYLES.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </Select2>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      {t("hosts.letterSpacingPx")}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                      {terminalConfig.letterSpacing}px
+                    </span>
+                  </div>
+                  <Slider
+                    min={-2}
+                    max={10}
+                    step={0.5}
+                    value={[terminalConfig.letterSpacing]}
+                    onValueChange={([v]) =>
+                      updateTerminalDraft((cur) => ({
+                        ...cur,
+                        letterSpacing: v,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      {t("hosts.lineHeightLabel")}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                      {terminalConfig.lineHeight.toFixed(1)}
+                    </span>
+                  </div>
+                  <Slider
+                    min={1.0}
+                    max={2.0}
+                    step={0.1}
+                    value={[terminalConfig.lineHeight]}
+                    onValueChange={([v]) =>
+                      updateTerminalDraft((cur) => ({
+                        ...cur,
+                        lineHeight: v,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+              {terminalDraft.theme === "custom" && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    {t("hosts.savedThemesLabel")}
+                  </span>
+                  {savedTerminalThemes.length === 0 ? (
+                    <p className="text-[10px] text-muted-foreground">
+                      {t("hosts.noSavedThemes")}
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {savedTerminalThemes.map((theme) => (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          title={t("hosts.applyGlobalThemeTooltip")}
+                          onClick={() =>
+                            updateTerminalDraft((cur) => ({
+                              ...cur,
+                              customThemeColors: { ...theme.colors },
+                            }))
+                          }
+                          className="flex items-center gap-1.5 border border-border px-2 py-1 text-xs hover:border-accent-brand transition-colors"
+                        >
+                          <span
+                            className="size-3 border border-border"
+                            style={{ background: theme.colors.background }}
+                          />
+                          {theme.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <ConnectionDefaultsSettings />
             <SettingRow
               label={t("newUi.sidebar.userProfile.commandAutocomplete")}
