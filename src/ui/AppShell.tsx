@@ -2117,14 +2117,20 @@ export function AppShell({
   }
 
   // Tab bar toggle: reopens whatever was last in the dock, so it behaves like a
-  // show/hide rather than losing the user's choice each time.
+  // show/hide rather than losing the user's choice each time. A saved view that
+  // no longer exists (e.g. a panel a fork removed) falls back to the first
+  // dockable one and clears the stale record.
   function toggleRightDock() {
     if (rightRailView) {
       lastRightRailViewRef.current = rightRailView;
       setRightRailView(null);
       return;
     }
-    const fallback = lastRightRailViewRef.current ?? rightDockableIds()[0];
+    let fallback = lastRightRailViewRef.current;
+    if (!fallback || !rightDockableIds().includes(fallback)) {
+      fallback = rightDockableIds()[0] ?? null;
+      lastRightRailViewRef.current = fallback;
+    }
     if (fallback) setRightRailView(fallback as RailView);
   }
 
