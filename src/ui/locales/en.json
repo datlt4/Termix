@@ -2563,6 +2563,9 @@
       "linking": "Linking and running the first sync...",
       "linked": "Linked. Your data is syncing now.",
       "signedInAgain": "Signed in. Sync is running again."
-    }
+    },
+    "keepMineAll": "Keep mine (all)",
+    "keepServerAll": "Keep server (all)",
+    "settledAll": "Settled {{count}} conflict(s)"
   }
 }

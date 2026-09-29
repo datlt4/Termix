@@ -642,6 +642,74 @@ router.get("/link/conflicts", ...guard, async (req: Request, res: Response) => {
 
 /**
  * @openapi
+ * /sync/link/conflicts/settle-all:
+ *   post:
+ *     summary: Settle every conflict at once
+ *     description: Desktop only. Resolves all pending conflicts with one choice. keep "mine" re-pushes each local row so the next sync overwrites the server copies; keep "server" drops every conflict and keeps the server copies.
+ *     tags:
+ *       - Sync
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - keep
+ *             properties:
+ *               keep:
+ *                 type: string
+ *                 enum:
+ *                   - mine
+ *                   - server
+ *     responses:
+ *       200:
+ *         description: How many conflicts were settled.
+ *       400:
+ *         description: Missing or invalid keep value.
+ */
+router.post(
+  "/link/conflicts/settle-all",
+  ...guard,
+  async (req: Request, res: Response) => {
+    const userId = userOf(req);
+    const keep = req.body?.keep;
+    if (keep !== "mine" && keep !== "server") {
+      return res.status(400).json({ error: "keep must be 'mine' or 'server'" });
+    }
+    const conflicts = await listConflicts(userId);
+    let settled = 0;
+    for (const conflict of conflicts) {
+      try {
+        if (keep === "mine") {
+          const entity = getEntity(conflict.entityType);
+          if (entity && !entity.readOnly) {
+            const row = JSON.parse(conflict.localRow) as SyncRow;
+            await writeWireRow(
+              entity,
+              userId,
+              { ...row, syncId: conflict.syncId },
+              createResolvers(userId),
+            );
+          }
+        }
+        await deleteConflict(userId, conflict.id);
+        settled += 1;
+      } catch (error) {
+        syncLogger.warn("Could not settle a sync conflict", {
+          operation: "sync_conflict_settle_all",
+          conflictId: conflict.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    if (settled > 0) getSyncEngine().request(0);
+    res.json({ success: true, settled });
+  },
+);
+
+/**
+ * @openapi
  * /sync/link/conflicts/{id}:
  *   post:
  *     summary: Settle a conflict

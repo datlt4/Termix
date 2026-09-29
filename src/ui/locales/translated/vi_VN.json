@@ -2490,5 +2490,10 @@
     },
     "seconds": "giây",
     "secondsShort": "{{count}}s"
+  },
+  "sync": {
+    "keepMineAll": "Giữ của tôi (tất cả)",
+    "keepServerAll": "Giữ của server (tất cả)",
+    "settledAll": "Đã giải quyết {{count}} conflict"
   }
 }

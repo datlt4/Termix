@@ -33,6 +33,7 @@ import {
   getSyncConflicts,
   getSyncErrors,
   retrySyncErrors,
+  settleAllSyncConflicts,
   settleSyncConflict,
   syncNow,
   unlinkServer,
@@ -355,6 +356,48 @@ export function SyncPanel() {
           title={t("sync.conflictsTitle")}
           description={t("sync.conflictsDescription")}
         >
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="h-7 text-[10px] rounded-none"
+              disabled={busy === "conflicts:mine"}
+              onClick={() =>
+                run("conflicts:mine", async () => {
+                  const result = await settleAllSyncConflicts("mine");
+                  setConflicts([]);
+                  refreshSyncStatus();
+                  toast.success(
+                    t("sync.settledAll", { count: result.settled }),
+                  );
+                })
+              }
+            >
+              {busy === "conflicts:mine" && (
+                <Loader2 className="size-3 animate-spin" />
+              )}
+              {t("sync.keepMineAll")}
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 text-[10px] rounded-none"
+              disabled={busy === "conflicts:server"}
+              onClick={() =>
+                run("conflicts:server", async () => {
+                  const result = await settleAllSyncConflicts("server");
+                  setConflicts([]);
+                  refreshSyncStatus();
+                  toast.success(
+                    t("sync.settledAll", { count: result.settled }),
+                  );
+                })
+              }
+            >
+              {busy === "conflicts:server" && (
+                <Loader2 className="size-3 animate-spin" />
+              )}
+              {t("sync.keepServerAll")}
+            </Button>
+          </div>
           {conflicts.map((conflict) => (
             <div
               key={conflict.id}
