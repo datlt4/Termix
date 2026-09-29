@@ -107,6 +107,43 @@ COPY package*.json ./
 # The plugin SDK is a workspace package core imports at runtime, so npm ci
 # has to see it to link it and install its dependencies.
 COPY packages/plugin-sdk/package.json ./packages/plugin-sdk/package.json
+# Every plugin's package.json must be present before npm ci, mirroring the
+# deps stage above. Without it, plugin-local runtime dependencies (e.g.
+# serialport for the serial plugin, redis for step-ca) are never installed
+# and those plugins fail at activation or on first use.
+COPY plugins/acme-ssl/package.json ./plugins/acme-ssl/package.json
+COPY plugins/ai/package.json ./plugins/ai/package.json
+COPY plugins/alerts/package.json ./plugins/alerts/package.json
+COPY plugins/automations/package.json ./plugins/automations/package.json
+COPY plugins/docker/package.json ./plugins/docker/package.json
+COPY plugins/file-manager/package.json ./plugins/file-manager/package.json
+COPY plugins/fleets/package.json ./plugins/fleets/package.json
+COPY plugins/homepage/package.json ./plugins/homepage/package.json
+COPY plugins/host-metrics/package.json ./plugins/host-metrics/package.json
+COPY plugins/ldap/package.json ./plugins/ldap/package.json
+COPY plugins/network-topology/package.json ./plugins/network-topology/package.json
+COPY plugins/opkssh/package.json ./plugins/opkssh/package.json
+COPY plugins/proxmox/package.json ./plugins/proxmox/package.json
+COPY plugins/remote-desktop/package.json ./plugins/remote-desktop/package.json
+COPY plugins/secret-sources/package.json ./plugins/secret-sources/package.json
+COPY plugins/serial/package.json ./plugins/serial/package.json
+COPY plugins/session-recording/package.json ./plugins/session-recording/package.json
+COPY plugins/session-sharing/package.json ./plugins/session-sharing/package.json
+COPY plugins/snippets/package.json ./plugins/snippets/package.json
+COPY plugins/ssh-terminal/package.json ./plugins/ssh-terminal/package.json
+COPY plugins/sso/package.json ./plugins/sso/package.json
+COPY plugins/step-ca/package.json ./plugins/step-ca/package.json
+COPY plugins/tailscale/package.json ./plugins/tailscale/package.json
+COPY plugins/termix-identity/package.json ./plugins/termix-identity/package.json
+COPY plugins/tmux-monitor/package.json ./plugins/tmux-monitor/package.json
+COPY plugins/totp/package.json ./plugins/totp/package.json
+COPY plugins/tunnels/package.json ./plugins/tunnels/package.json
+COPY plugins/vault/package.json ./plugins/vault/package.json
+COPY plugins/wake-on-lan/package.json ./plugins/wake-on-lan/package.json
+COPY plugins/warpgate/package.json ./plugins/warpgate/package.json
+COPY plugins/web-endpoint/package.json ./plugins/web-endpoint/package.json
+COPY plugins/webauthn/package.json ./plugins/webauthn/package.json
+COPY plugins/workspaces/package.json ./plugins/workspaces/package.json
 COPY .npmrc ./
 COPY vendor ./vendor
 
