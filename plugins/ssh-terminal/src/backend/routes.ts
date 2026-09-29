@@ -247,21 +247,37 @@ export function registerTerminalRoutes(
         bytes: req.file.size,
       });
 
+      const isLocalTerminalUpload = req.body?.localTerminal === "true";
       const storageSettings = await readImageStorageSettings(ctx);
       const session = isNonEmptyString(instanceId)
         ? findTerminalSession(userId, instanceId)
         : undefined;
-      let localHostVisible = false;
-      if (storageSettings.localMappingConfigured && session?.sshConn) {
-        localHostVisible = await probeLocalImageVisibility(
-          session.sshConn,
-          storageSettings,
-        ).catch(() => false);
+
+      // The desktop's local terminal shell runs on this backend's own
+      // machine, so its uploads always go to local storage. An unconfigured
+      // mapping falls back to the storage dir itself, which that shell can
+      // read directly.
+      const effectiveSettings =
+        isLocalTerminalUpload && !storageSettings.localMappingConfigured
+          ? { ...storageSettings, hostPath: storageSettings.localDir }
+          : storageSettings;
+
+      let storageMode: "local" | "remote-sftp" | "unavailable";
+      if (isLocalTerminalUpload) {
+        storageMode = "local";
+      } else {
+        let localHostVisible = false;
+        if (storageSettings.localMappingConfigured && session?.sshConn) {
+          localHostVisible = await probeLocalImageVisibility(
+            session.sshConn,
+            storageSettings,
+          ).catch(() => false);
+        }
+        storageMode = selectImageStorageMode(storageSettings, {
+          remoteSftpAvailable: !!session?.sshConn,
+          localHostVisible,
+        });
       }
-      const storageMode = selectImageStorageMode(storageSettings, {
-        remoteSftpAvailable: !!session?.sshConn,
-        localHostVisible,
-      });
 
       if (storageMode === "unavailable") {
         return res.status(503).json({
@@ -270,7 +286,11 @@ export function registerTerminalRoutes(
         });
       }
 
-      if (storageMode === "local" && !storageSettings.localMappingConfigured) {
+      if (
+        storageMode === "local" &&
+        !storageSettings.localMappingConfigured &&
+        !isLocalTerminalUpload
+      ) {
         return res.status(503).json({
           error: "Local image storage is not configured",
           code: "IMAGE_LOCAL_STORAGE_NOT_CONFIGURED",
@@ -380,7 +400,7 @@ export function registerTerminalRoutes(
                   maxBytes: storageSettings.maxBytes,
                 });
               })()
-            : await storeImageLocally(normalizedImage, storageSettings);
+            : await storeImageLocally(normalizedImage, effectiveSettings);
 
         res.json(stored);
       } catch (error) {

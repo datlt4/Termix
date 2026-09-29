@@ -20,7 +20,7 @@ export interface TestServer {
   request: (
     method: string,
     path: string,
-    options?: { user?: string; body?: unknown },
+    options?: { user?: string; body?: unknown; formData?: FormData },
     // Route bodies vary per test; asserting on them is the point.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ) => Promise<{ status: number; body: any }>;
@@ -70,15 +70,30 @@ export async function startServer(
   return {
     db,
     mock,
-    async request(method, path, { user = "user-1", body: given } = {}) {
+    async request(
+      method,
+      path,
+      { user = "user-1", body: given, formData } = {},
+    ) {
       const body = method === "GET" ? undefined : given;
       const response = await fetch(`http://127.0.0.1:${port}${path}`, {
         method,
-        headers: {
-          "x-test-user": user,
-          ...(body !== undefined ? { "content-type": "application/json" } : {}),
-        },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        headers:
+          formData !== undefined
+            ? { "x-test-user": user }
+            : {
+                "x-test-user": user,
+                ...(body !== undefined
+                  ? { "content-type": "application/json" }
+                  : {}),
+              },
+        // Let fetch set the multipart boundary for form data.
+        body:
+          formData !== undefined
+            ? formData
+            : body !== undefined
+              ? JSON.stringify(body)
+              : undefined,
       });
       const text = await response.text();
       return { status: response.status, body: text ? JSON.parse(text) : null };

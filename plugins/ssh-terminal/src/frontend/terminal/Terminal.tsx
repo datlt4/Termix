@@ -36,6 +36,7 @@ import { getTerminalBufferText } from "./terminal-buffer-text.ts";
 import { getMacLineNavigationSequence } from "../lib/mac-line-navigation";
 import { useCommandTracker } from "./command-history/useCommandTracker";
 import { useHostApi } from "../lib/use-host-connection-origin";
+import { readNativeClipboardImage } from "../lib/clipboard-image";
 import {
   highlightTerminalOutput,
   updateControlStringMode,
@@ -3685,33 +3686,6 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         toast.error(getErrorMessage(error, "Clipboard read failed"));
       } finally {
         setIsImageUploading(false);
-      }
-    }
-
-    /**
-     * The desktop app's native clipboard image, or null. Fallback for the
-     * paste-image button where navigator.clipboard.read() fails on Linux.
-     */
-    async function readNativeClipboardImage(): Promise<File | null> {
-      if (!isElectron()) return null;
-      const read = (
-        window as Window & {
-          electronAPI?: {
-            readClipboardImage?: () => Promise<string | null>;
-          };
-        }
-      ).electronAPI?.readClipboardImage;
-      if (!read) return null;
-      try {
-        const dataUrl = await read();
-        if (!dataUrl) return null;
-        const response = await fetch(dataUrl);
-        const blob = await response.blob();
-        return new File([blob], "clipboard-image.png", {
-          type: blob.type || "image/png",
-        });
-      } catch {
-        return null;
       }
     }
 

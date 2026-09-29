@@ -1,5 +1,23 @@
 import { afterEach, describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import sharp from "sharp";
 import { startServer, type TestServer } from "./helpers";
+
+/** A real 1x1 PNG, decoded by the route's Sharp normalization step. */
+async function makePng(): Promise<Buffer> {
+  return sharp({
+    create: {
+      width: 1,
+      height: 1,
+      channels: 3,
+      background: { r: 200, g: 20, b: 20 },
+    },
+  })
+    .png()
+    .toBuffer();
+}
 
 let server: TestServer | null = null;
 
@@ -130,5 +148,59 @@ describe("client settings and image storage", () => {
     });
     expect(result.status).toBe(200);
     expect(result.body.connected).toBe(false);
+  });
+});
+
+describe("image upload from a local terminal", () => {
+  it("stores the image in the default local dir without a terminal session", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "termix-img-"));
+    const previous = process.env.DATA_DIR;
+    process.env.DATA_DIR = dataDir;
+    try {
+      server = await startServer();
+      const form = new FormData();
+      form.append(
+        "image",
+        new Blob([await makePng()], { type: "image/png" }),
+        "clip.png",
+      );
+      form.append("instanceId", "");
+      form.append("source", "clipboard");
+      form.append("localTerminal", "true");
+
+      const { status, body } = await server.request("POST", "/image-upload", {
+        formData: form,
+      });
+      expect(status).toBe(200);
+      expect(body.storage).toBe("local");
+
+      const dir = path.join(dataDir, "termix-image-v0");
+      await expect(
+        fs.stat(path.join(dir, body.filename)),
+      ).resolves.toBeDefined();
+      expect(body.shellPath).toBe(path.posix.join(dir, body.filename));
+    } finally {
+      if (previous === undefined) delete process.env.DATA_DIR;
+      else process.env.DATA_DIR = previous;
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("still rejects a session-less upload without the local-terminal flag", async () => {
+    server = await startServer();
+    const form = new FormData();
+    form.append(
+      "image",
+      new Blob([await makePng()], { type: "image/png" }),
+      "clip.png",
+    );
+    form.append("instanceId", "");
+    form.append("source", "clipboard");
+
+    const { status, body } = await server.request("POST", "/image-upload", {
+      formData: form,
+    });
+    expect(status).toBe(503);
+    expect(body.code).toBe("IMAGE_STORAGE_UNAVAILABLE");
   });
 });
