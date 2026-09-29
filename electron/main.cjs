@@ -674,6 +674,9 @@ let backendStopRequested = false;
 const BACKEND_STDERR_TAIL_LIMIT = 8192;
 let backendStderrTail = "";
 let isQuitting = false;
+// Set once the ready handler has created the initial window. "activate"
+// must not race the launch sequence and open a duplicate window.
+let startupComplete = false;
 const tempFiles = new Map();
 const externalEditorSessions = new Map();
 
@@ -1277,6 +1280,10 @@ if (!gotTheLock) {
 }
 
 function createWindow() {
+  // macOS fires "activate" while the app is still launching (before — or
+  // while — the ready handler waits for the backend). Never create a
+  // second window if one already exists or is being created.
+  if (mainWindow && !mainWindow.isDestroyed()) return;
   const appVersion = app.getVersion();
   const electronVersion = process.versions.electron;
   const platform =
@@ -3586,6 +3593,7 @@ app.whenReady().then(async () => {
   }
 
   createWindow();
+  startupComplete = true;
   desktopSettings.removeOldSyncFiles();
   logToFile("=== Startup complete ===");
 });
@@ -3597,9 +3605,13 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
+  // During launch the ready handler owns window creation; an early
+  // activate (macOS activates the app as part of launch) must not race it.
+  if (!startupComplete) return;
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   } else if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
   }
