@@ -131,7 +131,10 @@ export function readHostMetricsSettings(
   const bag = values ?? {};
   const interval = Number(bag.metricsInterval);
   return {
-    metricsEnabled: bag.metricsEnabled !== false,
+    // Fork policy: host metrics is permanently disabled. The poller reads
+    // this before it starts, so no host ever gets background SSH polling.
+    // Stored values are ignored on purpose.
+    metricsEnabled: false,
     metricsInterval:
       bag.metricsInterval != null &&
       Number.isInteger(interval) &&

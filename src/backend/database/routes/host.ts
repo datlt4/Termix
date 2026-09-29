@@ -459,7 +459,11 @@ router.post(
         name: String(name ?? ip),
       });
 
-      res.json(stripSensitiveFields(resolvedHost));
+      // Carry the plugin host settings like every other host read; see the
+      // update route for why the saved object must include the bag.
+      res.json(
+        await withHostPluginSettings(stripSensitiveFields(resolvedHost)),
+      );
       notifyStatsHostUpdated(createdHost.id as number, userId, "host_create");
     } catch (err) {
       sshLogger.error("Failed to save SSH host to database", err, {
@@ -1259,7 +1263,12 @@ router.put(
         success: true,
       });
 
-      res.json(stripSensitiveFields(resolvedHost));
+      // Like the GET routes, carry the plugin's host settings on the saved
+      // host: the editor re-initializes from this object, and without the
+      // bag every plugin switch would read as its default again.
+      res.json(
+        await withHostPluginSettings(stripSensitiveFields(resolvedHost)),
+      );
       notifyStatsHostUpdated(parseInt(hostId), userId, "host_update");
     } catch (err) {
       sshLogger.error("Failed to update SSH host in database", err, {

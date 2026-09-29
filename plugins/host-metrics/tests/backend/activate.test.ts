@@ -39,25 +39,17 @@ describe("host-metrics activate", () => {
     },
   );
 
-  it("offers viewers as a service that runs as the caller", async () => {
+  it("refuses viewers while metrics are permanently disabled (fork policy)", async () => {
     server = await startServer();
     const viewers = server.mock.services.get(
       "host-metrics.viewers",
     ) as MetricsViewersV1;
 
-    const registered = await server.mock.ctx.asUser("user-1", () =>
-      viewers.register(7),
-    );
-    expect(registered).toEqual({ viewerSessionId: expect.any(String) });
-    const id = (registered as { viewerSessionId: string }).viewerSessionId;
-
+    // A known host is refused because metrics never run; an unknown host is
+    // refused before the metrics check is reached.
     expect(
-      await server.mock.ctx.asUser("user-1", async () => viewers.heartbeat(id)),
-    ).toBe(true);
-    expect(
-      await server.mock.ctx.asUser("user-2", async () => viewers.heartbeat(id)),
-    ).toBe(false);
-
+      await server.mock.ctx.asUser("user-1", () => viewers.register(7)),
+    ).toEqual({ skipped: true, reason: "metrics_disabled" });
     expect(
       await server.mock.ctx.asUser("user-1", () => viewers.register(99)),
     ).toEqual({ skipped: true, reason: "host_not_found" });
@@ -102,7 +94,8 @@ describe("hostImportNormalizer", () => {
         },
       }),
     ).toMatchObject({
-      metricsEnabled: true,
+      // Fork policy: imports land with metrics permanently off.
+      metricsEnabled: false,
       metricsInterval: 45,
       excludedMounts: ["/snap"],
     });

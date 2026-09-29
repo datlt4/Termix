@@ -202,7 +202,7 @@
     "tabHostMetrics": "Host Metrics",
     "metricsCollectionLabel": "Metrics Collection",
     "enableMetricsLabel": "Enable Metrics",
-    "enableMetricsDesc": "Collect CPU, RAM, disk, and other metrics from this host",
+    "enableMetricsDesc": "Always disabled in this build",
     "useGlobalMetrics": "Use Global Interval",
     "useGlobalMetricsDesc": "Override with the server-wide metrics interval",
     "metricsIntervalS": "Metrics Interval (s)",

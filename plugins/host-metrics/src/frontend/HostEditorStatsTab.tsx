@@ -116,10 +116,9 @@ export function HostStatsTab({
             label={t("hosts.enableMetricsLabel")}
             description={t("hosts.enableMetricsDesc")}
           >
-            <FakeSwitch
-              checked={settings.metricsEnabled}
-              onChange={(v) => patch({ metricsEnabled: v })}
-            />
+            {/* Fork policy: metrics are permanently off, so the switch is
+                locked to its off state instead of saving and reverting. */}
+            <FakeSwitch checked={settings.metricsEnabled} disabled />
           </SettingRow>
           {settings.metricsEnabled && (
             <SettingRow

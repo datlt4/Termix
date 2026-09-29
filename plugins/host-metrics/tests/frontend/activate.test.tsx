@@ -38,14 +38,13 @@ describe(`${manifest.id} activate`, () => {
     }
   });
 
-  it("fills core's metric slots and offers disk usage to other plugins", async () => {
+  it("keeps the outer metric slots empty and offers disk usage to other plugins", async () => {
     rendered = await renderWithApp(plugin, { manifest, locales });
-    expect(rendered.registered.slot("dashboard.hostMetrics")).toEqual([
-      "host-metrics.dashboardHost",
-    ]);
-    expect(rendered.registered.slot("homepage.hostMetrics")).toEqual([
-      "host-metrics.homepageHost",
-    ]);
+    // Fork policy: host metrics is permanently disabled, so no dashboard or
+    // homepage metric columns and no host-row button are contributed.
+    expect(rendered.registered.slot("dashboard.hostMetrics")).toEqual([]);
+    expect(rendered.registered.slot("homepage.hostMetrics")).toEqual([]);
+    expect(rendered.registered.hostActions()).toEqual([]);
     expect(rendered.registered.actions()).toContain("host-metrics.disk");
     expect(rendered.registered.hostEditorSections()).toEqual(["host-metrics"]);
   });
