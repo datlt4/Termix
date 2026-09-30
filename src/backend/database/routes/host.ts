@@ -1551,14 +1551,20 @@ router.get(
         }),
       );
 
-      const sanitized = result.map((host) =>
-        host.isShared
-          ? sanitizeHostForRecipient(
-              host,
-              host.permissionLevel as string | undefined,
-            )
-          : stripSensitiveFields(host),
-      );
+      // FORK: the owner of a host receives their own secrets (password/key)
+      // in the list so synced standalone devices can connect without
+      // re-prompting for stored credentials. Shared (other users') hosts
+      // remain fully sanitized for their recipients.
+      const sanitized = result.map((host): Record<string, unknown> => {
+        const record = host as Record<string, unknown>;
+        if (record.userId !== userId) {
+          return sanitizeHostForRecipient(
+            host,
+            record.permissionLevel as string | undefined,
+          );
+        }
+        return host;
+      });
 
       // After sanitizing: the connect-level projection reduces a shared host
       // to an allowlist, which would drop this again. One query for the list.
@@ -1637,9 +1643,9 @@ router.get(
         const resolved =
           (await resolveHostCredentials(result, userId)) || result;
 
-        return res.json(
-          await withHostPluginSettings(stripSensitiveFields(resolved)),
-        );
+        // FORK: the owner gets their own secrets here (see the /db/host list
+        // route); only shared recipients are sanitized below.
+        return res.json(await withHostPluginSettings(resolved));
       }
 
       // Not the owner: shared recipients get a sanitized view of the host.
