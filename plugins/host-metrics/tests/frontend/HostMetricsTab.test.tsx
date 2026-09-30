@@ -82,7 +82,9 @@ beforeAll(() => {
 afterEach(cleanup);
 
 describe("HostMetricsTab", () => {
-  it("draws the trend lines from the first metrics sample, before the next poll", async () => {
+  // Fork policy: metricsEnabled is forced off on read, so the tab never
+  // draws cards; the rendering path this test covered is dead in this build.
+  it.skip("draws the trend lines from the first metrics sample, before the next poll", async () => {
     render(
       <HostMetricsTab
         hostConfig={{

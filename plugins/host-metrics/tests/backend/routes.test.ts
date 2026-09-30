@@ -69,7 +69,7 @@ describe("metrics", () => {
 });
 
 describe("viewers", () => {
-  it("registers, heartbeats and unregisters a viewer", async () => {
+  it("refuses to register a viewer while metrics are permanently disabled (fork policy)", async () => {
     server = await startServer();
     const registered = await server.request(
       "POST",
@@ -79,33 +79,17 @@ describe("viewers", () => {
       },
     );
     expect(registered.status).toBe(200);
-    const viewerSessionId = registered.body.viewerSessionId as string;
-    expect(viewerSessionId).toMatch(/^viewer-/);
-
-    expect(
-      (
-        await server.request("POST", "/metrics/heartbeat", {
-          body: { viewerSessionId },
-        })
-      ).status,
-    ).toBe(200);
-    // Another user cannot keep or drop someone else's viewer.
-    expect(
-      (
-        await server.request("POST", "/metrics/heartbeat", {
-          user: "user-2",
-          body: { viewerSessionId },
-        })
-      ).status,
-    ).toBe(404);
-
-    await server.request("POST", "/metrics/unregister-viewer", {
-      body: { hostId: 7, viewerSessionId },
+    expect(registered.body).toEqual({
+      success: true,
+      skipped: true,
+      reason: "metrics_disabled",
     });
+
+    // Without a live viewer, heartbeats are unknown.
     expect(
       (
         await server.request("POST", "/metrics/heartbeat", {
-          body: { viewerSessionId },
+          body: { viewerSessionId: "viewer-none" },
         })
       ).status,
     ).toBe(404);

@@ -218,7 +218,7 @@
     "tabHostMetrics": "Số liệu máy chủ",
     "metricsCollectionLabel": "Thu thập số liệu",
     "enableMetricsLabel": "Bật thu thập số liệu",
-    "enableMetricsDesc": "Thu thập CPU, RAM, đĩa và các số liệu khác từ máy này",
+    "enableMetricsDesc": "Luôn tắt trong bản build này",
     "useGlobalMetrics": "Dùng khoảng thời gian toàn cục",
     "useGlobalMetricsDesc": "Ghi đè bằng khoảng thời gian thu thập số liệu toàn máy chủ",
     "metricsIntervalS": "Khoảng thu thập số liệu (giây)",

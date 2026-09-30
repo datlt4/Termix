@@ -53,6 +53,8 @@ export interface ElectronAPI {
   getPlatform: () => Promise<string>;
   getSetting?: (key: string) => Promise<string | null | undefined>;
   setSetting?: (key: string, value: string) => Promise<void>;
+  /** The native clipboard's current image as a data URL, or null. */
+  readClipboardImage?: () => Promise<string | null>;
 
   getServerConfig: () => Promise<ServerConfig>;
   saveServerConfig: (config: ServerConfig) => Promise<{ success: boolean }>;

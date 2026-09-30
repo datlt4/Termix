@@ -459,7 +459,11 @@ router.post(
         name: String(name ?? ip),
       });
 
-      res.json(stripSensitiveFields(resolvedHost));
+      // Carry the plugin host settings like every other host read; see the
+      // update route for why the saved object must include the bag.
+      res.json(
+        await withHostPluginSettings(stripSensitiveFields(resolvedHost)),
+      );
       notifyStatsHostUpdated(createdHost.id as number, userId, "host_create");
     } catch (err) {
       sshLogger.error("Failed to save SSH host to database", err, {
@@ -1259,7 +1263,12 @@ router.put(
         success: true,
       });
 
-      res.json(stripSensitiveFields(resolvedHost));
+      // Like the GET routes, carry the plugin's host settings on the saved
+      // host: the editor re-initializes from this object, and without the
+      // bag every plugin switch would read as its default again.
+      res.json(
+        await withHostPluginSettings(stripSensitiveFields(resolvedHost)),
+      );
       notifyStatsHostUpdated(parseInt(hostId), userId, "host_update");
     } catch (err) {
       sshLogger.error("Failed to update SSH host in database", err, {
@@ -1325,13 +1334,76 @@ router.patch(
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId!;
     const hostId = parseInt(String(req.params.id), 10);
-    const { autoTmux } = req.body ?? {};
+    const body = req.body ?? {};
+    const {
+      autoTmux,
+      cursorBlink,
+      cursorStyle,
+      fontSize,
+      fontFamily,
+      letterSpacing,
+      lineHeight,
+      theme,
+      customThemeColors,
+    } = body;
 
     if (isNaN(hostId)) {
       return res.status(400).json({ error: "Invalid host ID" });
     }
-    if (typeof autoTmux !== "boolean") {
-      return res.status(400).json({ error: "autoTmux must be a boolean" });
+
+    // Any recognized field may be sent; at least one is required. Each is
+    // type-validated before it is merged, so a partial body only touches the
+    // fields it actually carries.
+    const updates: Record<string, unknown> = {};
+    if (typeof autoTmux === "boolean") updates.autoTmux = autoTmux;
+    if (typeof cursorBlink === "boolean") updates.cursorBlink = cursorBlink;
+    if (
+      typeof cursorStyle === "string" &&
+      ["block", "underline", "bar"].includes(cursorStyle)
+    ) {
+      updates.cursorStyle = cursorStyle;
+    }
+    if (
+      typeof fontSize === "number" &&
+      Number.isFinite(fontSize) &&
+      fontSize >= 4 &&
+      fontSize <= 200
+    ) {
+      updates.fontSize = fontSize;
+    }
+    if (typeof fontFamily === "string" && fontFamily.trim().length > 0) {
+      updates.fontFamily = fontFamily.trim();
+    }
+    if (
+      typeof letterSpacing === "number" &&
+      Number.isFinite(letterSpacing) &&
+      letterSpacing >= -10 &&
+      letterSpacing <= 50
+    ) {
+      updates.letterSpacing = letterSpacing;
+    }
+    if (
+      typeof lineHeight === "number" &&
+      Number.isFinite(lineHeight) &&
+      lineHeight >= 0.5 &&
+      lineHeight <= 5
+    ) {
+      updates.lineHeight = lineHeight;
+    }
+    if (typeof theme === "string" && theme.trim().length > 0) {
+      updates.theme = theme;
+    }
+    if (
+      customThemeColors &&
+      typeof customThemeColors === "object" &&
+      !Array.isArray(customThemeColors)
+    ) {
+      updates.customThemeColors = customThemeColors;
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        error: "No recognized terminal config fields in request body",
+      });
     }
 
     try {
@@ -1361,10 +1433,10 @@ router.patch(
         }
       }
       await createCurrentHostRepository().updateForUser(ownerId, hostId, {
-        terminalConfig: JSON.stringify({ ...terminalConfig, autoTmux }),
+        terminalConfig: JSON.stringify({ ...terminalConfig, ...updates }),
       });
 
-      res.json({ success: true, autoTmux });
+      res.json({ success: true, ...updates });
     } catch (error) {
       sshLogger.error("Failed to update host terminal config", error, {
         operation: "host_terminal_config_update",

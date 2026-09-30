@@ -144,6 +144,13 @@ export async function settleSyncConflict(
   await authApi.post(`/sync/link/conflicts/${id}`, { keep });
 }
 
+/** Settles every pending conflict with one choice. Returns how many. */
+export async function settleAllSyncConflicts(
+  keep: "mine" | "server",
+): Promise<{ settled: number }> {
+  return (await authApi.post("/sync/link/conflicts/settle-all", { keep })).data;
+}
+
 export async function getSyncErrors(): Promise<SyncErrorItem[]> {
   return (await authApi.get("/sync/link/errors")).data?.errors ?? [];
 }

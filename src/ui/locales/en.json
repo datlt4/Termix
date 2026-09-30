@@ -304,7 +304,9 @@
     "collapseSideMenu": "Collapse Menu",
     "roleAdministrator": "Administrator",
     "roleUser": "User",
-    "sync": "Sync"
+    "sync": "Sync",
+    "closeTabsToRight": "Close tabs to the right",
+    "closeAllTabs": "Close all tabs"
   },
   "hosts": {
     "hosts": "Hosts",
@@ -2201,7 +2203,13 @@
         "linkedProfileTitle": "Signed in to {{server}}",
         "linkedProfileDescription": "This device uses your account on the server and keeps a copy of your data, so it still works offline.",
         "manageSync": "Manage sync",
-        "setUpSync": "Link to a server"
+        "setUpSync": "Link to a server",
+        "terminalAppearanceTitle": "Terminal Appearance",
+        "terminalApplyToAllHosts": "Apply to all hosts",
+        "terminalApplyAllConfirm": "Apply these terminal settings to all your hosts and the local terminal?",
+        "terminalAppliedToAll": "Applied to {{count}} host(s) and the local terminal",
+        "terminalAppliedPartially": "Applied to {{ok}} host(s), {{failed}} failed",
+        "terminalApplyFailed": "Could not apply terminal settings"
       }
     }
   },
@@ -2557,6 +2565,9 @@
       "linking": "Linking and running the first sync...",
       "linked": "Linked. Your data is syncing now.",
       "signedInAgain": "Signed in. Sync is running again."
-    }
+    },
+    "keepMineAll": "Keep mine (all)",
+    "keepServerAll": "Keep server (all)",
+    "settledAll": "Settled {{count}} conflict(s)"
   }
 }

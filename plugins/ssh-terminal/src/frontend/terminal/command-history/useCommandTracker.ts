@@ -1,5 +1,8 @@
 import { useRef, useCallback } from "react";
-import { usePluginApi } from "@termix/plugin-sdk/frontend";
+import {
+  usePluginApi,
+  type PluginApiClient,
+} from "@termix/plugin-sdk/frontend";
 import { saveCommandToHistory } from "../../terminal-api";
 
 const SENSITIVE_PATTERNS = [
@@ -21,6 +24,12 @@ interface UseCommandTrackerOptions {
   hostId?: number;
   enabled?: boolean;
   onCommandExecuted?: (command: string) => void;
+  /**
+   * Client for the backend this host's connection resolves to. Commands
+   * must be saved where the host's session lives; defaults to the local
+   * client when the host's origin is not known here.
+   */
+  api?: PluginApiClient;
 }
 
 interface CommandTrackerResult {
@@ -34,8 +43,10 @@ export function useCommandTracker({
   hostId,
   enabled = true,
   onCommandExecuted,
+  api: apiOverride,
 }: UseCommandTrackerOptions): CommandTrackerResult {
-  const api = usePluginApi();
+  const localApi = usePluginApi();
+  const api = apiOverride ?? localApi;
   const currentCommandRef = useRef<string>("");
   const isInEscapeSequenceRef = useRef<boolean>(false);
 
@@ -108,7 +119,7 @@ export function useCommandTracker({
         }
       }
     },
-    [enabled, hostId, onCommandExecuted],
+    [enabled, hostId, onCommandExecuted, api],
   );
 
   const getCurrentCommand = useCallback(() => {

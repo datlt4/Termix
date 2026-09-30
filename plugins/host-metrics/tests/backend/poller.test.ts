@@ -72,8 +72,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// Fork policy: host metrics is permanently disabled (readHostMetricsSettings
+// forces metricsEnabled to false), so MetricsPoller.start() returns before it
+// ever schedules a poll. The polling-path tests below are skipped rather than
+// kept green against dead code; they document the upstream behaviour.
 describe("MetricsPoller", () => {
-  it("polls from the first viewer and reports a working login", async () => {
+  it.skip("polls from the first viewer and reports a working login", async () => {
     collectMetrics.mockImplementation(async (_deps, _host, _mounts, onAuth) => {
       onAuth?.();
       return sample;
@@ -107,7 +111,7 @@ describe("MetricsPoller", () => {
     expect(job?.ms).toBe(30_000);
   });
 
-  it("uses the host's own interval over the admin one", async () => {
+  it.skip("uses the host's own interval over the admin one", async () => {
     collectMetrics.mockResolvedValue(sample);
     const { fake, poller } = setup();
     await fake.ctx.settings.set("metricsInterval", 60);
@@ -121,7 +125,7 @@ describe("MetricsPoller", () => {
     );
   });
 
-  it("waits for a host core sees as offline", async () => {
+  it.skip("waits for a host core sees as offline", async () => {
     collectMetrics.mockResolvedValue(sample);
     const { fake, poller } = setup();
     fake.hostStatuses.set(7, { status: "offline", lastChecked: "now" });
@@ -137,7 +141,7 @@ describe("MetricsPoller", () => {
     expect(collectMetrics).toHaveBeenCalledOnce();
   });
 
-  it("reports a failed login and why collection stopped", async () => {
+  it.skip("reports a failed login and why collection stopped", async () => {
     collectMetrics.mockRejectedValue(
       new Error("All configured authentication methods failed"),
     );
@@ -154,7 +158,7 @@ describe("MetricsPoller", () => {
     });
   });
 
-  it("marks a changed host key", async () => {
+  it.skip("marks a changed host key", async () => {
     collectMetrics.mockRejectedValue(new Error("Host key changed"));
     const { fake, poller, state } = setup();
 
@@ -169,7 +173,7 @@ describe("MetricsPoller", () => {
     expect(state.authFailures.shouldSkip(7)).toBe(false);
   });
 
-  it("stops with the last viewer", async () => {
+  it.skip("stops with the last viewer", async () => {
     collectMetrics.mockResolvedValue(sample);
     const { fake, poller } = setup();
 
@@ -206,7 +210,7 @@ describe("MetricsPoller", () => {
     expect(collectMetrics).not.toHaveBeenCalled();
   });
 
-  it("grows poll concurrency with the number of polled hosts", async () => {
+  it.skip("grows poll concurrency with the number of polled hosts", async () => {
     collectMetrics.mockResolvedValue(sample);
     const ids = Array.from({ length: 200 }, (_, index) => index + 1);
     const { poller, state } = setup(ids);
@@ -218,7 +222,7 @@ describe("MetricsPoller", () => {
     expect(state.metricsLimiter.limit).toBe(10);
   });
 
-  it("drops a pooled connection when a host changes", async () => {
+  it.skip("drops a pooled connection when a host changes", async () => {
     collectMetrics.mockResolvedValue(sample);
     const { fake, poller } = setup();
     poller.registerViewer(7, "a", "user-1");

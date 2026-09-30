@@ -35,6 +35,8 @@ import { TmuxSessionPicker } from "./TmuxSessionPicker";
 import { getTerminalBufferText } from "./terminal-buffer-text.ts";
 import { getMacLineNavigationSequence } from "../lib/mac-line-navigation";
 import { useCommandTracker } from "./command-history/useCommandTracker";
+import { useHostApi } from "../lib/use-host-connection-origin";
+import { readClipboardImageFile } from "../lib/clipboard-image";
 import {
   highlightTerminalOutput,
   updateControlStringMode,
@@ -117,7 +119,6 @@ import {
 import {
   useTranslation,
   invokeAction,
-  usePluginApi,
   useSlotContributions,
   getCustomKeybindings,
   getClientPreference,
@@ -200,7 +201,13 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     ref,
   ) {
     const { t } = useTranslation();
-    const api = usePluginApi();
+    // The host's sessions and per-host data (image uploads, command history)
+    // live on the backend its connection origin resolves to — the embedded
+    // local backend, or the linked remote server. A local-only client cannot
+    // find a remote-origin host's session, so image uploads 503 there.
+    const api = useHostApi(
+      hostConfig.connectionOrigin as "local" | "remote" | null | undefined,
+    );
     const { instance: terminal, ref: xtermRef } = useXTerm();
     const commandHistoryContext = useCommandHistory();
     const { confirmWithToast } = useConfirmation();
@@ -287,6 +294,11 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const [isSavingQuickConnect, setIsSavingQuickConnect] = useState(false);
     const [isQuickConnectSaved, setIsQuickConnectSaved] = useState(false);
     const [isImageUploading, setIsImageUploading] = useState(false);
+    // 0-100 while a request is in flight, null when unknown (no content
+    // length) so the toolbar can show an indeterminate bar instead.
+    const [imageUploadProgress, setImageUploadProgress] = useState<
+      number | null
+    >(null);
     const [isConnecting, setIsConnecting] = useState(false);
     const [isFitted, setIsFitted] = useState(false);
     const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -422,6 +434,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       useCommandTracker({
         hostId: hostConfig.id,
         enabled: commandHistoryTrackingEnabled,
+        api,
         onCommandExecuted: (command) => {
           if (!autocompleteHistory.current.includes(command)) {
             autocompleteHistory.current = [
@@ -2834,6 +2847,19 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           e.preventDefault();
           e.stopPropagation();
           terminal.paste(text);
+          return;
+        }
+        // Image-only clipboard (Ctrl+V): upload it into the session and
+        // paste the stored path, so image-aware CLIs (Claude Code, OpenCode)
+        // can read it. Goes through the paste event on purpose: unlike
+        // navigator.clipboard.read, clipboardData works on plain HTTP.
+        const imageFile = Array.from(e.clipboardData?.files ?? []).find(
+          (file) => file.type.startsWith("image/"),
+        );
+        if (imageFile) {
+          e.preventDefault();
+          e.stopPropagation();
+          void handleImageUpload(imageFile, "clipboard");
         }
       };
       element?.addEventListener("paste", handlePaste);
@@ -3037,6 +3063,28 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             });
             return false;
           }
+        }
+
+        // Shift+Enter inserts a newline instead of submitting. xterm.js
+        // sends a plain CR for Shift+Enter (shift is ignored for Enter),
+        // so emit the same bytes xterm sends for Alt+Enter (ESC + CR): AI
+        // CLIs such as Claude Code and OpenCode treat that as the newline
+        // key. Identical on every platform, including macOS.
+        if (
+          e.key === "Enter" &&
+          e.shiftKey &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          !e.metaKey
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (webSocketRef.current?.readyState === 1) {
+            webSocketRef.current.send(
+              JSON.stringify({ type: "input", data: "\x1b\r" }),
+            );
+          }
+          return false;
         }
 
         if (
@@ -3513,6 +3561,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         return;
       }
       setIsImageUploading(true);
+      setImageUploadProgress(null);
       try {
         const form = buildImageUploadFormData(
           file,
@@ -3521,6 +3570,15 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         );
         const response = await api.post("/image-upload", form, {
           headers: { "Content-Type": undefined },
+          onUploadProgress: (event: { loaded?: number; total?: number }) => {
+            // total is 0/absent when the body has no known length; the
+            // toolbar then shows an indeterminate bar.
+            if (event.total && event.total > 0) {
+              setImageUploadProgress(
+                Math.min(100, Math.round((event.loaded / event.total) * 100)),
+              );
+            }
+          },
         });
         const { shellPath } = response.data as {
           shellPath: string;
@@ -3548,6 +3606,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         toast.error(code ? `${message} (${code})` : message);
       } finally {
         setIsImageUploading(false);
+        setImageUploadProgress(null);
       }
     }
 
@@ -3558,50 +3617,8 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       }
       setIsImageUploading(true);
       try {
-        const items = await navigator.clipboard.read();
-        for (const item of items) {
-          const imageType = item.types.find((type) =>
-            type.startsWith("image/"),
-          );
-          if (!imageType) continue;
-          const blob = await item.getType(imageType);
-          let clipboardFile = new File([blob], "clipboard-image.png", {
-            type: imageType,
-          });
-          // Preserve native PNG clipboard bytes. Some browser/platform
-          // clipboard implementations decode transparent PNGs incorrectly
-          // through canvas, producing an all-black/transparent re-encode.
-          // Only rasterize formats that need conversion; Sharp validates the
-          // resulting image server-side.
-          if (
-            imageType !== "image/png" &&
-            typeof createImageBitmap === "function"
-          ) {
-            try {
-              const bitmap = await createImageBitmap(blob);
-              try {
-                const canvas = document.createElement("canvas");
-                canvas.width = bitmap.width;
-                canvas.height = bitmap.height;
-                const context = canvas.getContext("2d");
-                if (!context) throw new Error("Canvas unavailable");
-                context.drawImage(bitmap, 0, 0);
-                const png = await new Promise<Blob>((resolve, reject) => {
-                  canvas.toBlob((result) => {
-                    if (result) resolve(result);
-                    else reject(new Error("Clipboard image conversion failed"));
-                  }, "image/png");
-                });
-                clipboardFile = new File([png], "clipboard-image.png", {
-                  type: "image/png",
-                });
-              } finally {
-                bitmap.close();
-              }
-            } catch {
-              // Fall back to the original clipboard blob.
-            }
-          }
+        const clipboardFile = await readClipboardImageFile();
+        if (clipboardFile) {
           await handleImageUpload(clipboardFile, "clipboard");
           return;
         }
@@ -3695,6 +3712,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               }
             }}
             isImageUploading={isImageUploading}
+            imageUploadProgress={imageUploadProgress}
             onUploadImage={(file) => void handleImageUpload(file, "file")}
             onPasteImage={() => void handleClipboardImage()}
             isFocused={isFocusedPane}

@@ -1,27 +1,28 @@
 import { useState, useEffect } from "react";
 import { Copy, Search, Terminal, Trash2 } from "lucide-react";
 import { copyToClipboard, Button, Input } from "@termix/plugin-sdk/ui";
-import {
-  usePluginApi,
-  useTranslation,
-  type PanelProps,
-} from "@termix/plugin-sdk/frontend";
+import { useTranslation, type PanelProps } from "@termix/plugin-sdk/frontend";
 import {
   clearCommandHistory,
   deleteCommandFromHistory,
   getCommandHistory,
   hostSetting,
 } from "../terminal-api";
+import { useHostApi } from "../lib/use-host-connection-origin";
 
 /** Command history for the terminal the user is working in. */
 export function HistoryPanel({ targetTab }: PanelProps) {
   const { t } = useTranslation();
-  const api = usePluginApi();
+  const activeTab = targetTab;
+  const activeIsTerminal = !!activeTab;
+  // The host's command history lives on the backend its connection resolves
+  // to, so the client must follow the host's connection origin.
+  const api = useHostApi(
+    activeTab?.host?.connectionOrigin as "local" | "remote" | null | undefined,
+  );
   const [search, setSearch] = useState("");
   const [commands, setCommands] = useState<string[]>([]);
 
-  const activeTab = targetTab;
-  const activeIsTerminal = !!activeTab;
   const hostId = activeTab?.host?.id ? parseInt(activeTab.host.id, 10) : null;
   const trackingEnabled = hostSetting(
     activeTab?.host,

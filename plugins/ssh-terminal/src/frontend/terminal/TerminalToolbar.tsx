@@ -12,6 +12,7 @@ import {
   GripVertical,
   ImagePlus,
   LayoutGrid,
+  Loader2,
   LogOut,
   Maximize2,
   Minimize2,
@@ -81,12 +82,15 @@ const CONTROL =
 const SEPARATOR = "mx-0.5 h-5 w-px shrink-0 bg-border";
 
 interface TerminalToolbarProps {
-  host: Host;
+  /** Host record; omit for terminals not bound to a host (local terminal). */
+  host?: Host;
   terminalIdentity?: string;
   isConnected: boolean;
   isTmuxAttached: boolean;
   onTmuxDetach: () => void;
   isImageUploading: boolean;
+  /** 0-100 upload progress, or null while unknown (indeterminate). */
+  imageUploadProgress?: number | null;
   onUploadImage: (file: File) => void | Promise<void>;
   onPasteImage: () => void | Promise<void>;
   isFocused: boolean;
@@ -103,6 +107,7 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
   isTmuxAttached,
   onTmuxDetach,
   isImageUploading,
+  imageUploadProgress,
   onUploadImage,
   onPasteImage,
   isFocused,
@@ -135,7 +140,7 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
         action.kind === "open" &&
         !action.items &&
         (action.run || action.tabType) &&
-        action.when(record),
+        (host ? action.when(record) : false),
     );
   }, [hostActions, host]);
   const openHostLink = (action: (typeof hostLinks)[number]) => {
@@ -163,6 +168,11 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
   const pendingRightEdgeRef = useRef<number | null>(null);
   const mountedRef = useRef(false);
   const imageGenerationRef = useRef(0);
+  // A paste (Ctrl/Cmd+V) can start an upload while the toolbar is collapsed;
+  // un-collapse it so the progress readout is actually visible.
+  useEffect(() => {
+    if (isImageUploading) setCollapsed(false);
+  }, [isImageUploading]);
   const hostRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const measurementRef = useRef<HTMLDivElement>(null);
@@ -176,7 +186,7 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
   const dragMovedRef = useRef(false);
   const densityId = useId();
   const [desktopViewportReady, setDesktopViewportReady] = useState<boolean>();
-  const hostIdentity = terminalIdentity ?? `${host.id ?? "unknown"}`;
+  const hostIdentity = terminalIdentity ?? `${host?.id ?? "unknown"}`;
   positionRef.current = position;
   const effectiveDensity: ToolbarDensity = isFocused
     ? responsiveDensity
@@ -484,14 +494,37 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
     </Select>
   );
 
-  const imageButtons = (
+  const imageButtons = isImageUploading ? (
+    <span className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
+      <Loader2 className="size-3.5 shrink-0 animate-spin text-accent-brand" />
+      <span className="whitespace-nowrap">
+        {t("terminalToolbar.uploadingImage")}
+        {typeof imageUploadProgress === "number"
+          ? ` ${imageUploadProgress}%`
+          : ""}
+      </span>
+      <span className="h-1 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
+        <span
+          className={cn(
+            "block h-full rounded-full bg-accent-brand transition-[width] duration-150",
+            imageUploadProgress == null &&
+              "w-1/3 animate-pulse transition-none",
+          )}
+          style={
+            imageUploadProgress != null
+              ? { width: `${imageUploadProgress}%` }
+              : undefined
+          }
+        />
+      </span>
+    </span>
+  ) : (
     <>
       <button
         type="button"
         className={CONTROL}
         aria-label={t("terminalToolbar.uploadImage")}
         title={t("terminalToolbar.uploadImage")}
-        disabled={isImageUploading}
         onClick={chooseFile}
       >
         <ImagePlus className="size-4 shrink-0" />
@@ -502,7 +535,6 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
         className={CONTROL}
         aria-label={t("terminalToolbar.pasteImage")}
         title={t("terminalToolbar.pasteImage")}
-        disabled={isImageUploading}
         onClick={pasteImage}
       >
         <ClipboardPaste className="size-4 shrink-0" />
@@ -567,7 +599,13 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
           }}
         />
         <span role="status" aria-live="polite" className="sr-only">
-          {isImageUploading ? t("terminalToolbar.uploadingImage") : ""}
+          {isImageUploading
+            ? `${t("terminalToolbar.uploadingImage")}${
+                typeof imageUploadProgress === "number"
+                  ? ` ${imageUploadProgress}%`
+                  : ""
+              }`
+            : ""}
         </span>
         {imageError && (
           <div
@@ -650,7 +688,11 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
           data-terminal-toolbar-wide
           className={cn(
             "pointer-events-auto transition-opacity duration-300 hover:duration-0 focus-within:duration-0 hover:opacity-100 focus-within:opacity-100",
-            collapsed || densityOpen ? "opacity-100" : "opacity-30",
+            // Keep the bar fully visible while an upload is in flight, even
+            // if the pointer has left the toolbar.
+            collapsed || densityOpen || isImageUploading
+              ? "opacity-100"
+              : "opacity-30",
           )}
           style={{
             transform: `translate(${position.x}px, ${position.y}px)`,

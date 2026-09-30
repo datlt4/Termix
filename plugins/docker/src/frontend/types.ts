@@ -31,6 +31,20 @@ export interface DockerStats {
   pids?: string;
 }
 
+export interface DockerImage {
+  repository: string;
+  tag: string;
+  id: string;
+  size: string;
+  createdAt: string;
+  createdSince: string;
+}
+
+export interface DockerVolume {
+  name: string;
+  driver: string;
+}
+
 export interface DockerLogOptions {
   tail?: number;
   timestamps?: boolean;

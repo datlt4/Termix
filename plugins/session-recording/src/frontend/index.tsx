@@ -1,27 +1,15 @@
-import { ScrollText } from "lucide-react";
 import type { TermixApp } from "@termix/plugin-sdk/frontend";
-import { SessionLogsPanel } from "./SessionLogsPanel";
 import { RecordingStatus } from "./RecordingStatus";
 
 export function activate(app: TermixApp): void {
-  app.registerRailItem({
-    id: "session-logs",
-    icon: ScrollText,
-    titleKey: "nav.sessionLogs",
-    kind: "panel",
-    promotable: true,
-    rightDockable: true,
-    separatorAfter: true,
-    permission: "view",
-  });
-
-  app.registerPanel("session-logs", () => <SessionLogsPanel />);
-
-  app.registerTab("session-logs", () => <SessionLogsPanel />, {
-    icon: ScrollText,
-    titleKey: "nav.sessionLogs",
-    hostless: true,
-  });
+  // This fork removes the session-logs surface entirely (rail item, right-dock
+  // panel and tab). The panel polled its list endpoint on every mount and
+  // spammed "failed to load session logs" toasts, and the logs are not wanted
+  // (storage overhead). Nothing registers the view anymore, so nothing can
+  // ever load it.
+  //
+  // The per-host recording indicator stays: it is opt-in, purely cosmetic and
+  // makes no requests.
 
   app.registerSlotContribution("terminal.toolbarStatus", {
     actionId: "session-recording.terminalStatus",
@@ -34,7 +22,8 @@ export function activate(app: TermixApp): void {
         | undefined;
       const enabled =
         host?.pluginSettings?.["session-recording"]?.enableSessionRecording;
-      return enabled !== false;
+      // Mirrors the backend default: recording is opt-in only.
+      return enabled === true;
     },
   });
 }

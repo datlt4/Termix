@@ -45,6 +45,8 @@ import {
 import { ContainerList } from "./components/ContainerList.tsx";
 import { ContainerTable } from "./components/ContainerTable.tsx";
 import { ContainerDetail } from "./components/ContainerDetail.tsx";
+import { ImagesPanel } from "./components/ImagesPanel.tsx";
+import { VolumesPanel } from "./components/VolumesPanel.tsx";
 
 interface DockerManagerProps {
   host?: DockerHost;
@@ -138,6 +140,10 @@ function DockerManagerInner({
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [retryCount, setRetryCount] = React.useState(0);
+  const [section, setSection] = React.useState<
+    "containers" | "images" | "volumes"
+  >("containers");
+  const [refreshKey, setRefreshKey] = React.useState(0);
 
   const activityLoggedRef = React.useRef(false);
 
@@ -155,6 +161,7 @@ function DockerManagerInner({
     setSessionId(null);
     setDockerValidation(null);
     setViewMode("list");
+    setSection("containers");
   }, [host?.id]);
 
   const retryRef = React.useRef<ReturnType<typeof useConnectionRetry> | null>(
@@ -304,6 +311,12 @@ function DockerManagerInner({
     }
   }, [sessionId, docker]);
 
+  /** Refreshes whatever section is on screen. */
+  const handleRefresh = React.useCallback(() => {
+    if (section === "containers") void refreshContainers();
+    else setRefreshKey((k) => k + 1);
+  }, [section, refreshContainers]);
+
   React.useEffect(() => {
     setHasLoadedContainersOnce(false);
   }, [sessionId]);
@@ -450,7 +463,7 @@ function DockerManagerInner({
       <div style={wrapperStyle} className={`${containerClass} relative`}>
         <div className="h-full w-full flex flex-col flex-1 min-h-0 overflow-hidden">
           <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
-            <Card className="flex-row items-center justify-between px-3 py-3 shrink-0 gap-0">
+            <Card className="flex-row flex-wrap items-center justify-between gap-2 px-3 py-3 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="size-10 border border-border bg-muted flex items-center justify-center shrink-0">
                   <Box className="size-5 text-accent-brand" />
@@ -560,7 +573,7 @@ function DockerManagerInner({
           />
         ) : (
           <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
-            <Card className="flex-row items-center justify-between px-3 py-3 shrink-0 gap-0">
+            <Card className="flex-row flex-wrap items-center justify-between gap-2 px-3 py-3 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="size-10 border border-border bg-muted flex items-center justify-center shrink-0">
                   <Box className="size-5 text-accent-brand" />
@@ -584,60 +597,97 @@ function DockerManagerInner({
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <div className="flex items-center border border-border overflow-hidden">
+                  {(["containers", "images", "volumes"] as const).map(
+                    (s, i) => (
+                      <button
+                        key={s}
+                        onClick={() => setSection(s)}
+                        className={`h-8 px-2.5 text-xs font-semibold transition-colors ${
+                          i > 0 ? "border-l border-border" : ""
+                        } ${
+                          section === s
+                            ? "bg-accent-brand/10 text-accent-brand"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {t(`docker.${s}`)}
+                      </button>
+                    ),
+                  )}
+                </div>
                 <div className="relative w-56">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                   <Input
-                    placeholder={t("docker.searchPlaceholder")}
+                    placeholder={
+                      section === "containers"
+                        ? t("docker.searchPlaceholder")
+                        : section === "images"
+                          ? t("docker.searchImages")
+                          : t("docker.searchVolumes")
+                    }
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="pl-8 h-8"
                   />
                 </div>
-                <Select2
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="h-8 px-2 text-xs bg-background border border-border text-foreground outline-none focus:ring-1 focus:ring-ring"
-                >
-                  <option value="all">{t("docker.allStatuses")}</option>
-                  <option value="running">{t("docker.stateRunning")}</option>
-                  <option value="paused">{t("docker.statePaused")}</option>
-                  <option value="exited">{t("docker.stateExited")}</option>
-                  <option value="restarting">
-                    {t("docker.stateRestarting")}
-                  </option>
-                </Select2>
-                <Separator orientation="vertical" className="h-8 mx-1" />
-                <div className="flex items-center border border-border overflow-hidden">
-                  <Button
-                    variant={containerLayout === "card" ? "secondary" : "ghost"}
-                    size="icon"
-                    onClick={() => handleSetContainerLayout("card")}
-                    className={`size-8 rounded-none ${containerLayout === "card" ? "bg-accent-brand/10 text-accent-brand" : ""}`}
-                    title={t("docker.cardView")}
-                  >
-                    <Grid3X3 className="size-4" />
-                  </Button>
-                  <Button
-                    variant={
-                      containerLayout === "table" ? "secondary" : "ghost"
-                    }
-                    size="icon"
-                    onClick={() => handleSetContainerLayout("table")}
-                    className={`size-8 rounded-none border-l border-border ${containerLayout === "table" ? "bg-accent-brand/10 text-accent-brand" : ""}`}
-                    title={t("docker.listView")}
-                  >
-                    <ListIcon className="size-4" />
-                  </Button>
-                </div>
-                <Separator orientation="vertical" className="h-8 mx-1" />
+                {section === "containers" && (
+                  <>
+                    <Select2
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="h-8 px-2 text-xs bg-background border border-border text-foreground outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="all">{t("docker.allStatuses")}</option>
+                      <option value="running">
+                        {t("docker.stateRunning")}
+                      </option>
+                      <option value="paused">{t("docker.statePaused")}</option>
+                      <option value="exited">{t("docker.stateExited")}</option>
+                      <option value="restarting">
+                        {t("docker.stateRestarting")}
+                      </option>
+                    </Select2>
+                    <Separator orientation="vertical" className="h-8 mx-1" />
+                    <div className="flex items-center border border-border overflow-hidden">
+                      <Button
+                        variant={
+                          containerLayout === "card" ? "secondary" : "ghost"
+                        }
+                        size="icon"
+                        onClick={() => handleSetContainerLayout("card")}
+                        className={`size-8 rounded-none ${containerLayout === "card" ? "bg-accent-brand/10 text-accent-brand" : ""}`}
+                        title={t("docker.cardView")}
+                      >
+                        <Grid3X3 className="size-4" />
+                      </Button>
+                      <Button
+                        variant={
+                          containerLayout === "table" ? "secondary" : "ghost"
+                        }
+                        size="icon"
+                        onClick={() => handleSetContainerLayout("table")}
+                        className={`size-8 rounded-none border-l border-border ${containerLayout === "table" ? "bg-accent-brand/10 text-accent-brand" : ""}`}
+                        title={t("docker.listView")}
+                      >
+                        <ListIcon className="size-4" />
+                      </Button>
+                    </div>
+                    <Separator orientation="vertical" className="h-8 mx-1" />
+                  </>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={refreshContainers}
-                  disabled={isLoadingContainers}
+                  onClick={handleRefresh}
+                  disabled={section === "containers" && isLoadingContainers}
                 >
                   <RefreshCw
-                    className={`size-4 text-accent-brand ${isLoadingContainers ? "animate-spin" : ""}`}
+                    className={`size-4 text-accent-brand ${
+                      section === "containers" && isLoadingContainers
+                        ? "animate-spin"
+                        : ""
+                    }`}
                   />
                 </Button>
                 <a
@@ -653,7 +703,19 @@ function DockerManagerInner({
             </Card>
 
             {sessionId ? (
-              !hasLoadedContainersOnce ? (
+              section === "images" ? (
+                <ImagesPanel
+                  sessionId={sessionId}
+                  search={search}
+                  refreshKey={refreshKey}
+                />
+              ) : section === "volumes" ? (
+                <VolumesPanel
+                  sessionId={sessionId}
+                  search={search}
+                  refreshKey={refreshKey}
+                />
+              ) : !hasLoadedContainersOnce ? (
                 <div className="flex flex-col items-center justify-center h-full opacity-40 py-20">
                   <RefreshCw className="size-8 animate-spin mb-4" />
                   <span className="text-sm font-semibold">

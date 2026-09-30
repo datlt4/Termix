@@ -60,9 +60,12 @@ export function createRecordingsWriter(
   ctx: PluginContext,
   repository: SessionRecordingRepository,
 ): RecordingsWriterV1 {
+  // This fork defaults session recording to OFF (opt-in per host via the
+  // "enableSessionRecording" host setting): recordings are never wanted by
+  // default and writing them costs disk space on every session.
   const enabledFor = async (hostId: number) =>
-    (await ctx.settings.getHost<boolean>(hostId, "enableSessionRecording")) !==
-    false;
+    (await ctx.settings.getHost<boolean>(hostId, "enableSessionRecording")) ===
+    true;
 
   return {
     enabledFor,

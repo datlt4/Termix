@@ -1,9 +1,7 @@
-import type { ComponentType } from "react";
 import { Activity, Server } from "lucide-react";
 import type {
   HomepageWidgetContribution,
   HostEditorSectionProps,
-  PluginHostRecord,
   StandaloneViewProps,
   TabProps,
   TermixApp,
@@ -15,19 +13,16 @@ import { metricsChartWidget } from "./MetricsChartWidget";
 import { TerminalMetricsStatus } from "./TerminalMetricsStatus";
 import { createHostMetricsApi } from "./host-metrics-api";
 import { createMetricsSummaryStore } from "./summary-store";
-import {
-  createDashboardHostMetrics,
-  createHomepageHostMetrics,
-} from "./SummaryViews";
 
 type HostMetricsTabConfig = Parameters<typeof HostMetricsTab>[0]["hostConfig"];
 
-/** This plugin's metricsEnabled host setting; on unless turned off. */
+/**
+ * Fork policy: host metrics is permanently disabled, so no host ever shows
+ * the host-row button or the terminal status bar that would open it.
+ */
 function metricsEnabledFor(host: unknown): boolean {
-  const bag = (
-    host as { pluginSettings?: Record<string, Record<string, unknown>> }
-  )?.pluginSettings;
-  return bag?.["host-metrics"]?.metricsEnabled !== false;
+  void host;
+  return false;
 }
 
 function MetricsTab({ sshHost, label, isVisible }: TabProps) {
@@ -78,18 +73,9 @@ export async function activate(app: TermixApp): Promise<void> {
     preload: () => import("./HostMetricsTab"),
   });
 
-  app.registerHostAction({
-    id: "host-metrics",
-    titleKey: "nav.hostMetrics",
-    icon: Server,
-    kind: "open",
-    order: 50,
-    tabType: "host-metrics",
-    copyUrlView: "host-metrics",
-    overview: true,
-    when: (host: PluginHostRecord) =>
-      allowed && !!host.enableSsh && metricsEnabledFor(host),
-  });
+  // Fork policy: the host-row Host Metrics button is intentionally not
+  // registered, so there is nothing on the host list to press by accident.
+  // The tab itself stays registered for sessions that already have it open.
 
   app.registerHostEditorSection({
     id: "host-metrics",
@@ -113,28 +99,9 @@ export async function activate(app: TermixApp): Promise<void> {
     when: (context) => allowed && metricsEnabledFor(context.host),
   });
 
-  // The usage bars in the dashboard's host status card.
-  app.registerSlotContribution("dashboard.hostMetrics", {
-    actionId: "host-metrics.dashboardHost",
-    titleKey: "nav.hostMetrics",
-    kind: "component",
-    component: createDashboardHostMetrics(summaries),
-  });
-
-  // The numbers in the homepage's host status widget.
-  app.registerSlotContribution("homepage.hostMetrics", {
-    actionId: "host-metrics.homepageHost",
-    titleKey: "nav.hostMetrics",
-    kind: "component",
-    component: createHomepageHostMetrics(summaries),
-  });
-
-  app.registerSlotContribution("onboarding.features", {
-    actionId: "host-metrics.feature",
-    titleKey: "onboarding.feature_metrics",
-    descriptionKey: "onboarding.feature_metrics_desc",
-    icon: Activity as ComponentType<{ className?: string }>,
-  });
+  // Fork policy: the dashboard and homepage metrics columns are not
+  // registered either, so the outer UI shows no (permanently empty)
+  // metrics columns for hosts.
 
   app.declareActionSlot({
     id: "host-metrics.managers",

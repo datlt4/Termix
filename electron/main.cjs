@@ -7,7 +7,6 @@ const {
   Menu,
   session,
   safeStorage,
-  Tray,
   clipboard,
   nativeImage,
 } = require("electron");
@@ -31,7 +30,6 @@ const linkedServer = require("./linked-server.cjs");
 const desktopSettings = require("./desktop-settings.cjs");
 const { launchNativeRdp } = require("./native-rdp.cjs");
 const { isCloseActiveTabInput } = require("./keyboard-shortcuts.cjs");
-const { quitApp } = require("./app-quit.cjs");
 const { selectLinuxPasswordStore } = require("./linux-password-store.cjs");
 const { resolveLocalShell } = require("./local-shell.cjs");
 const { registerLocalFileHandlers } = require("./local-files.cjs");
@@ -675,8 +673,10 @@ let backendStopRequested = false;
 // classified after the fact.
 const BACKEND_STDERR_TAIL_LIMIT = 8192;
 let backendStderrTail = "";
-let tray = null;
 let isQuitting = false;
+// Set once the ready handler has created the initial window. "activate"
+// must not race the launch sequence and open a duplicate window.
+let startupComplete = false;
 const tempFiles = new Map();
 const externalEditorSessions = new Map();
 
@@ -1279,75 +1279,11 @@ if (!gotTheLock) {
   });
 }
 
-function createTray() {
-  try {
-    const { nativeImage } = require("electron");
-
-    // Native APIs (Tray, nativeImage) can't load files from inside app.asar —
-    // use the unpacked path so the OS sees a real file.
-    const publicRoot = isDev
-      ? path.join(appRoot, "public")
-      : path.join(
-          appRoot.replace(
-            /app(-[a-z0-9]+)?\.asar(?!\.unpacked)/,
-            "app.asar.unpacked",
-          ),
-          "public",
-        );
-
-    let trayIcon;
-    if (process.platform === "darwin") {
-      const iconPath = path.join(publicRoot, "icons", "16x16.png");
-      trayIcon = nativeImage.createFromPath(iconPath);
-      trayIcon.setTemplateImage(true);
-    } else if (process.platform === "win32") {
-      trayIcon = path.join(publicRoot, "icon.ico");
-    } else {
-      trayIcon = path.join(publicRoot, "icons", "32x32.png");
-    }
-
-    tray = new Tray(trayIcon);
-    tray.setToolTip("Termix");
-
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: "Show Window",
-        click: () => {
-          if (mainWindow) {
-            mainWindow.show();
-            mainWindow.focus();
-          }
-        },
-      },
-      {
-        label: "Quit",
-        click: () => {
-          isQuitting = true;
-          quitApp(app, mainWindow);
-        },
-      },
-    ]);
-
-    tray.setContextMenu(contextMenu);
-
-    tray.on("click", () => {
-      if (mainWindow) {
-        if (mainWindow.isVisible()) {
-          mainWindow.hide();
-        } else {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      }
-    });
-
-    console.log("System tray created successfully");
-  } catch (err) {
-    console.error("Failed to create system tray:", err);
-  }
-}
-
 function createWindow() {
+  // macOS fires "activate" while the app is still launching (before — or
+  // while — the ready handler waits for the backend). Never create a
+  // second window if one already exists or is being created.
+  if (mainWindow && !mainWindow.isDestroyed()) return;
   const appVersion = app.getVersion();
   const electronVersion = process.versions.electron;
   const platform =
@@ -1537,13 +1473,6 @@ function createWindow() {
 
   mainWindow.webContents.on("did-finish-load", () => {
     console.log("Frontend loaded successfully");
-  });
-
-  mainWindow.on("close", (event) => {
-    if (!isQuitting && tray && !tray.isDestroyed()) {
-      event.preventDefault();
-      mainWindow.hide();
-    }
   });
 
   mainWindow.on("closed", () => {
@@ -3114,6 +3043,15 @@ ipcMain.handle("clipboard-write-text", (_event, text) => {
 
 ipcMain.handle("clipboard-read-text", () => clipboard.readText());
 
+// The renderer's navigator.clipboard.read() can fail on Linux (Wayland
+// portals, missing session access) even when the platform clipboard itself
+// is reachable from the main process. This is the fallback for the image
+// paste button in that case.
+ipcMain.handle("clipboard-read-image", () => {
+  const image = clipboard.readImage();
+  return image.isEmpty() ? null : image.toDataURL();
+});
+
 ipcMain.handle("local-terminal-start", (event, dimensions = {}) => {
   const cols = Math.min(500, Math.max(2, Number(dimensions.cols) || 80));
   const rows = Math.min(300, Math.max(1, Number(dimensions.rows) || 24));
@@ -3663,22 +3601,26 @@ app.whenReady().then(async () => {
     );
   }
 
-  createTray();
   createWindow();
+  startupComplete = true;
   desktopSettings.removeOldSyncFiles();
   logToFile("=== Startup complete ===");
 });
 
+// Closing the last window quits the app entirely on every platform —
+// no tray icon, no background process.
 app.on("window-all-closed", () => {
-  if (!tray || tray.isDestroyed()) {
-    app.quit();
-  }
+  app.quit();
 });
 
 app.on("activate", () => {
+  // During launch the ready handler owns window creation; an early
+  // activate (macOS activates the app as part of launch) must not race it.
+  if (!startupComplete) return;
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   } else if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
   }

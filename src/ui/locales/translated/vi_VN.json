@@ -416,7 +416,9 @@
     "keepSideMenuOpen": "Giữ menu luôn mở",
     "collapseSideMenu": "Menu thu gọn",
     "roleAdministrator": "Quản trị viên",
-    "roleUser": "Người dùng"
+    "roleUser": "Người dùng",
+    "closeTabsToRight": "Đóng tab phía bên phải",
+    "closeAllTabs": "Đóng tất cả tab"
   },
   "hosts": {
     "hosts": "Máy chủ",
@@ -2356,7 +2358,13 @@
         "themeSolarized": "Solarized",
         "themeTokyoNight": "Tokyo Night",
         "themeOneDark": "One Dark",
-        "themeGruvbox": "Gruvbox"
+        "themeGruvbox": "Gruvbox",
+        "terminalAppearanceTitle": "Giao diện Terminal",
+        "terminalApplyToAllHosts": "Áp dụng cho toàn bộ host",
+        "terminalApplyAllConfirm": "Áp dụng cài đặt terminal này cho toàn bộ host và local terminal?",
+        "terminalAppliedToAll": "Đã áp dụng cho {{count}} host và local terminal",
+        "terminalAppliedPartially": "Đã áp dụng cho {{ok}} host, {{failed}} lỗi",
+        "terminalApplyFailed": "Không thể áp dụng cài đặt terminal"
       }
     }
   },
@@ -2484,5 +2492,10 @@
     },
     "seconds": "giây",
     "secondsShort": "{{count}}s"
+  },
+  "sync": {
+    "keepMineAll": "Giữ của tôi (tất cả)",
+    "keepServerAll": "Giữ của server (tất cả)",
+    "settledAll": "Đã giải quyết {{count}} conflict"
   }
 }
