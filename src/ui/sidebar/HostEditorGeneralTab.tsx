@@ -9,8 +9,7 @@ import type { Host } from "@/types/ui-types";
 import { Activity, Globe, Plus, Tag, Terminal, Trash2, X } from "lucide-react";
 import { FolderPathPicker } from "./FolderPathPicker";
 import { HostParentPicker } from "./HostParentPicker";
-import { getSSHFolders, isElectron } from "@/main-axios";
-import { connectionOriginAppliesTo } from "./HostEditorData";
+import { getSSHFolders } from "@/main-axios";
 import { useSyncStatus } from "@/hooks/use-sync-status";
 import type { HostEditorForm, HostProtocols } from "./HostEditorData";
 import { Select2 } from "@/components/select2";
@@ -715,31 +714,6 @@ export function HostEditorGeneralTab({
                 </div>
               ) : null}
             </div>
-          )}
-          {isElectron() && connectionOriginAppliesTo(protocols) && (
-            <SettingRow
-              label={t("hosts.connectionOrigin")}
-              description={t("hosts.connectionOriginDesc")}
-            >
-              <select
-                className="flex h-7 border border-border bg-background px-2 py-0 text-xs outline-none focus:ring-1 focus:ring-ring"
-                value={form.connectionOrigin ?? ""}
-                onChange={(e) =>
-                  setField(
-                    "connectionOrigin",
-                    (e.target.value || null) as "local" | "remote" | null,
-                  )
-                }
-              >
-                <option value="">{t("hosts.connectionOriginDefault")}</option>
-                <option value="local">
-                  {t("hosts.connectionOriginLocal")}
-                </option>
-                <option value="remote">
-                  {t("hosts.connectionOriginRemote")}
-                </option>
-              </select>
-            </SettingRow>
           )}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
