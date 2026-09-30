@@ -222,6 +222,7 @@
     }
   },
   "hosts": {
-    "tabTerminal": "Terminal"
+    "tabTerminal": "Terminal",
+    "terminalNewTab": "New Terminal Tab"
   }
 }

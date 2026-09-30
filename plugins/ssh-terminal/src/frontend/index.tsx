@@ -1,5 +1,11 @@
 import { lazy, Suspense, type ComponentType } from "react";
-import { History, Laptop, SquareTerminal, Terminal } from "lucide-react";
+import {
+  History,
+  Laptop,
+  SquarePlus,
+  SquareTerminal,
+  Terminal,
+} from "lucide-react";
 import type {
   PanelProps,
   StandaloneViewProps,
@@ -91,6 +97,23 @@ export function activate(app: TermixApp): void {
     order: 10,
     tabType: "terminal",
     copyUrlView: "terminal",
+    when: (host) =>
+      !!host.enableSsh && hostSetting(host, "enableTerminal", true),
+  });
+
+  // FORK: explicit "open a second terminal for this host" action. A plain
+  // click focuses the existing tab (focusExistingTab), so this tray button
+  // makes multi-tab-per-host discoverable — same as Local Terminal's
+  // multiInstance behaviour.
+  app.registerHostAction({
+    id: "terminal-new",
+    titleKey: "hosts.terminalNewTab",
+    icon: SquarePlus,
+    kind: "connect",
+    priority: 90,
+    order: 11,
+    run: (host, shell) =>
+      shell.openTab(host, "terminal", { forceNewTab: true }),
     when: (host) =>
       !!host.enableSsh && hostSetting(host, "enableTerminal", true),
   });

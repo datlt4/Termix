@@ -193,5 +193,8 @@
   },
   "palette": {
     "localTerminal": "Ga địa phương"
+  },
+  "hosts": {
+    "terminalNewTab": "Mở tab terminal mới"
   }
 }
