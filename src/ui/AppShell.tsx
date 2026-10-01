@@ -1934,12 +1934,23 @@ export function AppShell({
 
   /** Tab context menu bulk actions: "to the right" is visual bar order. */
   function closeTabsByAction(
-    action: "toTheRight" | "all",
+    action: "toTheRight" | "others" | "all",
     contextTabId: string,
   ) {
     let ids: string[];
     if (action === "all") {
       ids = tabs.filter((tab) => tab.type !== "dashboard").map((tab) => tab.id);
+    } else if (action === "others") {
+      // Close everything except the tab the menu was opened on (its split
+      // children, if any, stay attached to it).
+      ids = tabs
+        .filter(
+          (tab) =>
+            tab.type !== "dashboard" &&
+            tab.id !== contextTabId &&
+            tab.parentSplitTabId !== contextTabId,
+        )
+        .map((tab) => tab.id);
     } else {
       const topIds = topLevelTabs.map((tab) => tab.id);
       const idx = topIds.indexOf(contextTabId);

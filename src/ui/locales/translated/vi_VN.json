@@ -418,6 +418,7 @@
     "roleAdministrator": "Quản trị viên",
     "roleUser": "Người dùng",
     "closeTabsToRight": "Đóng tab phía bên phải",
+    "closeOtherTabs": "Đóng tab khác",
     "closeAllTabs": "Đóng tất cả tab"
   },
   "hosts": {
