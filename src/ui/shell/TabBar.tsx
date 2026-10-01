@@ -72,7 +72,10 @@ export function TabBar({
   focusedPaneIndex: number | null;
   onSetActiveTab: (id: string) => void;
   onCloseTab: (id: string) => void;
-  onCloseTabs?: (action: "toTheRight" | "all", contextTabId: string) => void;
+  onCloseTabs?: (
+    action: "toTheRight" | "others" | "all",
+    contextTabId: string,
+  ) => void;
   onRefreshTab: (id: string) => void;
   onReorderTabs: (tabs: Tab[]) => void;
   onSplitTab: (tabId: string, mode: SplitMode) => void;
@@ -799,6 +802,17 @@ export function TabBar({
                       >
                         <X className="size-3" />
                         {t("nav.closeTabsToRight")}
+                      </button>
+                      <button
+                        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-accent hover:text-accent-foreground text-destructive disabled:opacity-50 disabled:hover:bg-transparent"
+                        disabled={!hasOthers}
+                        onClick={() => {
+                          onCloseTabs("others", contextTabId);
+                          setContextTabId(null);
+                        }}
+                      >
+                        <X className="size-3" />
+                        {t("nav.closeOtherTabs")}
                       </button>
                       <button
                         className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-accent hover:text-accent-foreground text-destructive disabled:opacity-50 disabled:hover:bg-transparent"

@@ -1,7 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 
-const getLinkedSession = vi.hoisted(() => vi.fn(async () => null));
-vi.mock("@/lib/linked-server", () => ({ getLinkedSession }));
 import {
   buildOriginWsUrl,
   resolveConnectionOrigin,
@@ -15,30 +13,27 @@ afterEach(() => {
 });
 
 describe("resolveConnectionOrigin", () => {
-  // Support#1240: these can now originate from the desktop, but only when a
-  // host opts in. Left on Default they stay remote, so an upgrade never moves
-  // an existing host onto a local guacd the user has not set up.
-  it("resolves to remote with defaultRemote when the host has no override", async () => {
-    win.IS_ELECTRON = true;
-    win.electronAPI = {
-      invoke: async (channel: string) =>
-        channel === "get-desktop-settings"
-          ? { defaultConnectionOrigin: "local" }
-          : null,
-    };
+  // FORK: interactive connections are always initiated from this machine
+  // (Termius-like direct connections). The linked server is used for data
+  // sync only, so every resolution -- regardless of host overrides,
+  // defaultRemote, or desktop settings -- is "local".
+  it("always resolves to local", async () => {
+    await expect(resolveConnectionOrigin({})).resolves.toBe("local");
+    await expect(
+      resolveConnectionOrigin({ connectionOrigin: null }),
+    ).resolves.toBe("local");
+    await expect(
+      resolveConnectionOrigin({ connectionOrigin: "local" }),
+    ).resolves.toBe("local");
+    await expect(
+      resolveConnectionOrigin({ connectionOrigin: "remote" }),
+    ).resolves.toBe("local");
+  });
+
+  it("always resolves to local even with defaultRemote", async () => {
     await expect(
       resolveConnectionOrigin(
         { connectionOrigin: null },
-        { defaultRemote: true },
-      ),
-    ).resolves.toBe("remote");
-  });
-
-  it("honors an explicit override over defaultRemote", async () => {
-    win.IS_ELECTRON = true;
-    await expect(
-      resolveConnectionOrigin(
-        { connectionOrigin: "local" },
         { defaultRemote: true },
       ),
     ).resolves.toBe("local");
@@ -47,58 +42,26 @@ describe("resolveConnectionOrigin", () => {
         { connectionOrigin: "remote" },
         { defaultRemote: true },
       ),
-    ).resolves.toBe("remote");
-  });
-
-  it("resolves to local outside Electron even with defaultRemote", async () => {
-    await expect(
-      resolveConnectionOrigin(
-        { connectionOrigin: null },
-        { defaultRemote: true },
-      ),
     ).resolves.toBe("local");
   });
 
-  it("resolves to local outside Electron regardless of the host override", async () => {
-    await expect(
-      resolveConnectionOrigin({
-        connectionOrigin: "remote",
-      }),
-    ).resolves.toBe("local");
-  });
-
-  it("honors a host-level override for ssh in Electron", async () => {
-    win.IS_ELECTRON = true;
-    await expect(
-      resolveConnectionOrigin({
-        connectionOrigin: "remote",
-      }),
-    ).resolves.toBe("remote");
-    await expect(
-      resolveConnectionOrigin({
-        connectionOrigin: "local",
-      }),
-    ).resolves.toBe("local");
-  });
-
-  it("falls back to the desktop-wide default when no host override is set", async () => {
+  it("always resolves to local in Electron with remote desktop settings", async () => {
     win.IS_ELECTRON = true;
     win.electronAPI = {
-      invoke: async (channel: string) => {
-        if (channel === "get-desktop-settings") {
-          return { defaultConnectionOrigin: "remote" };
-        }
-        return null;
-      },
+      invoke: async (channel: string) =>
+        channel === "get-desktop-settings"
+          ? { defaultConnectionOrigin: "remote" }
+          : null,
     };
     await expect(
-      resolveConnectionOrigin({
-        connectionOrigin: null,
-      }),
-    ).resolves.toBe("remote");
+      resolveConnectionOrigin({ connectionOrigin: null }),
+    ).resolves.toBe("local");
+    await expect(
+      resolveConnectionOrigin({ connectionOrigin: "remote" }),
+    ).resolves.toBe("local");
   });
 
-  it("defaults to local when the desktop settings lookup fails", async () => {
+  it("always resolves to local when the desktop settings lookup fails", async () => {
     win.IS_ELECTRON = true;
     win.electronAPI = {
       invoke: async () => {
@@ -106,9 +69,7 @@ describe("resolveConnectionOrigin", () => {
       },
     };
     await expect(
-      resolveConnectionOrigin({
-        connectionOrigin: null,
-      }),
+      resolveConnectionOrigin({ connectionOrigin: null }),
     ).resolves.toBe("local");
   });
 });
@@ -116,13 +77,9 @@ describe("resolveConnectionOrigin", () => {
 /**
  * The embedded backend authenticates a local WebSocket from its subprotocol,
  * because the browser WebSocket API cannot set an Authorization header.
- * Electron's main process does inject a JWT cookie, but only on an exact
- * origin match, so a socket has to carry the credential itself.
  *
- * This caught a real bug: the Docker console opted out of the token and had no
- * other credential left, so its handshake was closed with 1008 while logs and
- * stats kept working. The fixtures below use the plugin socket routes these
- * channels actually use now; every plugin shares the backend port.
+ * FORK: "remote" was retired -- every interactive channel dials the embedded
+ * local backend, even when a caller still passes origin "remote".
  */
 describe("buildOriginWsUrl", () => {
   const store: Record<string, string> = {};
@@ -168,12 +125,7 @@ describe("buildOriginWsUrl", () => {
     });
   });
 
-  it("does not duplicate the Guacamole token on remote connections", async () => {
-    getLinkedSession.mockResolvedValueOnce({
-      serverUrl: "https://termix.example",
-      token: "remote-jwt",
-    } as never);
-
+  it("still targets the local backend when a caller passes remote", async () => {
     const target = await buildOriginWsUrl({
       origin: "remote",
       localPort: 30001,
@@ -183,7 +135,7 @@ describe("buildOriginWsUrl", () => {
     });
 
     expect(target).toEqual({
-      url: "wss://termix.example/plugin-ws/remote-desktop/display",
+      url: "ws://127.0.0.1:30001/plugin-ws/remote-desktop/display",
       protocols: [],
     });
   });

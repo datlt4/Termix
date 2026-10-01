@@ -28,7 +28,6 @@ import {
 import { useSyncStatus } from "@/hooks/use-sync-status";
 import { refreshSyncStatus, setSyncStatus } from "@/lib/sync-status";
 import { notifySyncChanged } from "@/lib/linked-server";
-import { invalidateServerStatusCache } from "@/lib/hosts-request-cache";
 import {
   getSyncConflicts,
   getSyncErrors,
@@ -47,8 +46,6 @@ import {
 } from "@/api/sync-api";
 import { LinkServerDialog } from "./LinkServerDialog";
 import { ProxySettingsFields } from "./ProxySettingsFields";
-
-type DesktopSettings = { defaultConnectionOrigin: "local" | "remote" };
 
 function Section({
   title,
@@ -111,9 +108,6 @@ export function SyncPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<SyncConflictItem[]>([]);
   const [errors, setErrors] = useState<SyncErrorItem[]>([]);
-  const [desktopSettings, setDesktopSettings] = useState<DesktopSettings>({
-    defaultConnectionOrigin: "local",
-  });
   const [proxyDraft, setProxyDraft] = useState<{
     customHeaders: SyncProxyHeader[];
     basicAuth: SyncBasicAuth | null;
@@ -123,15 +117,6 @@ export function SyncPanel() {
   const apply = useCallback((next: SyncStatus) => {
     setSyncStatus(next);
     notifySyncChanged();
-  }, []);
-
-  useEffect(() => {
-    window.electronAPI
-      ?.invoke?.("get-desktop-settings")
-      .then((settings) => {
-        if (settings) setDesktopSettings(settings as DesktopSettings);
-      })
-      .catch(() => {});
   }, []);
 
   const conflictCount = status?.conflicts ?? 0;
@@ -241,14 +226,6 @@ export function SyncPanel() {
       else disabled.add(type);
       apply(await updateSyncSettings({ disabledTypes: [...disabled] }));
     });
-
-  const handleOriginChange = async (origin: "local" | "remote") => {
-    const next = { ...desktopSettings, defaultConnectionOrigin: origin };
-    setDesktopSettings(next);
-    await window.electronAPI?.invoke?.("save-desktop-settings", next);
-    invalidateServerStatusCache();
-    window.dispatchEvent(new CustomEvent("hosts:refresh"));
-  };
 
   const draft = proxyDraft ?? {
     customHeaders: status.customHeaders ?? [],
@@ -532,30 +509,6 @@ export function SyncPanel() {
         <p className="text-[10px] text-muted-foreground leading-relaxed">
           {t("sync.localOnlyHint")}
         </p>
-      </Section>
-
-      <Section
-        title={t("sync.originTitle")}
-        description={t("sync.originDescription")}
-      >
-        <div className="flex border border-border overflow-hidden w-fit">
-          {(["local", "remote"] as const).map((origin) => (
-            <button
-              key={origin}
-              type="button"
-              onClick={() => void handleOriginChange(origin)}
-              className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${
-                desktopSettings.defaultConnectionOrigin === origin
-                  ? "bg-accent-brand text-background"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
-            >
-              {origin === "local"
-                ? t("sync.originLocal")
-                : t("sync.originRemote")}
-            </button>
-          ))}
-        </div>
       </Section>
 
       <Section

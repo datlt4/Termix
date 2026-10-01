@@ -306,6 +306,7 @@
     "roleUser": "User",
     "sync": "Sync",
     "closeTabsToRight": "Close tabs to the right",
+    "closeOtherTabs": "Close other tabs",
     "closeAllTabs": "Close all tabs"
   },
   "hosts": {
