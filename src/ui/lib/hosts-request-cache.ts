@@ -41,12 +41,6 @@ export function getCachedSSHHosts(
   return hostsCache.get(loader);
 }
 
-export function getCachedServerStatuses(
-  loader: () => Promise<Record<number, ServerStatus>>,
-): Promise<Record<number, ServerStatus>> {
-  return statusCache.get(loader);
-}
-
 export function invalidateServerStatusCache(): void {
   statusCache.invalidate();
 }

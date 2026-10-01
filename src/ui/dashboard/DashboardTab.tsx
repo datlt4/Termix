@@ -53,11 +53,7 @@ import {
   hostActionsFor,
   listHostActions,
 } from "@/sidebar/host-contributions";
-import {
-  useStatusColorScheme,
-  getStatusClasses,
-} from "@/hooks/use-status-color-scheme";
-import { useServerStatus } from "@/lib/ServerStatusContext";
+import {} from "@/hooks/use-status-color-scheme";
 import { sshHostToHost } from "@/sidebar/HostManagerData";
 import { getDefaultConnectionTab } from "@/lib/host-connection-tabs";
 
@@ -160,14 +156,12 @@ export function PluginCardSlot({
 // ─── Card components ──────────────────────────────────────────────────────────
 
 function StatsBarCard({
-  hosts,
   uptimeFormatted,
   versionText,
   versionStatus,
   releaseUrl,
   dbHealth,
 }: {
-  hosts: Host[];
   uptimeFormatted: string;
   versionText: string;
   versionStatus: "up_to_date" | "requires_update" | "beta" | "unknown";
@@ -175,9 +169,8 @@ function StatsBarCard({
   dbHealth: "healthy" | "error";
 }) {
   const { t } = useTranslation();
-  const online = hosts.filter((h) => h.status === "online").length;
   return (
-    <Card className="grid grid-cols-4 divide-x divide-border overflow-hidden w-full h-full py-0 gap-0">
+    <Card className="grid grid-cols-3 divide-x divide-border overflow-hidden w-full h-full py-0 gap-0">
       <div className="flex flex-col justify-center px-4 py-2 gap-1">
         <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
           {t("dashboard.version")}
@@ -210,19 +203,6 @@ function StatsBarCard({
             ? t("dashboard.healthy")
             : t("dashboard.error")}
         </span>
-      </div>
-      <div className="flex flex-col justify-center px-4 py-2 gap-1">
-        <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
-          {t("dashboardTab.hostsAvailable", {
-            defaultValue: "Hosts Available",
-          })}
-        </span>
-        <div className="flex items-baseline gap-1">
-          <span className="text-xl font-bold leading-none">{online}</span>
-          <span className="text-base text-muted-foreground leading-none">
-            /{hosts.length}
-          </span>
-        </div>
       </div>
     </Card>
   );
@@ -413,15 +393,11 @@ function QuickActionsCard({
 export function HostStatusCard({
   hosts,
   onOpenTab,
-  statusLoading,
 }: {
   hosts: Host[];
   onOpenTab: (host: Host, type: TabType) => void;
-  statusLoading?: boolean;
 }) {
   const { t } = useTranslation();
-  const statusScheme = useStatusColorScheme();
-  const online = hosts.filter((h) => h.status === "online").length;
   return (
     <Card className="flex flex-col overflow-hidden w-full h-full py-0 gap-0">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
@@ -431,9 +407,7 @@ export function HostStatusCard({
             {t("dashboardTab.hostStatus")}
           </span>
         </div>
-        <span className="text-xs text-muted-foreground">
-          {online}/{hosts.length} {t("hosts.status.available")}
-        </span>
+        <span className="text-xs text-muted-foreground">{hosts.length}</span>
       </div>
       <div className="flex flex-col overflow-auto flex-1">
         {hosts.length === 0 && (
@@ -442,12 +416,6 @@ export function HostStatusCard({
           </div>
         )}
         {hosts.map((host, i) => {
-          const availability =
-            host.status && host.status !== "unknown"
-              ? host.status
-              : host.online
-                ? "online"
-                : "offline";
           return (
             <div
               key={i}
@@ -462,9 +430,6 @@ export function HostStatusCard({
               className="flex min-w-0 items-center justify-between px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer group/row"
             >
               <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                <span
-                  className={`size-1.5 rounded-full shrink-0 ${getStatusClasses(availability, statusScheme, "dot", statusLoading)}`}
-                />
                 <div className="flex min-w-0 flex-col">
                   <div className="flex min-w-0 items-center gap-1">
                     <span
@@ -483,27 +448,6 @@ export function HostStatusCard({
                   </span>
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-3">
-                {/* Plugins such as host metrics show live usage here. */}
-                <ComponentSlot
-                  slotId="dashboard.hostMetrics"
-                  props={{
-                    hostId: Number(host.id),
-                    online: availability === "online",
-                  }}
-                />
-                <span
-                  className={`text-[10px] px-2 py-0.5 font-semibold border ${getStatusClasses(availability, statusScheme, "badge", statusLoading)}`}
-                >
-                  {statusLoading
-                    ? t("dashboardTab.checking")
-                    : availability === "online"
-                      ? t("hosts.status.available")
-                      : availability === "reachable"
-                        ? t("hosts.status.reachable")
-                        : t("hosts.status.offline")}
-                </span>
-              </div>
             </div>
           );
         })}
@@ -512,25 +456,18 @@ export function HostStatusCard({
   );
 }
 
-function isStatusCheckEnabled(host: Host): boolean {
-  return host.statusCheckEnabled !== false;
-}
-
 function RecentActivityCard({
   activity,
   hosts,
   onOpenTab,
   onClear,
-  statusLoading,
 }: {
   activity: RecentActivityItem[];
   hosts: Host[];
   onOpenTab: (host: Host, type: TabType) => void;
   onClear: () => void;
-  statusLoading?: boolean;
 }) {
   const { t } = useTranslation();
-  const statusScheme = useStatusColorScheme();
   const typeIcon = (type: string): React.ReactNode => {
     const Icon = activityTarget(type)?.icon ?? Server;
     return <Icon className="size-2.5" />;
@@ -584,9 +521,6 @@ function RecentActivityCard({
               className="flex items-center justify-between px-4 py-2 border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer"
             >
               <div className="flex items-center gap-2">
-                <span
-                  className={`size-1.5 rounded-full shrink-0 ${getStatusClasses(host?.online ?? false, statusScheme, "dot", statusLoading)}`}
-                />
                 <div className="flex flex-col">
                   <span className="text-xs font-semibold truncate max-w-24">
                     {item.hostName}
@@ -631,7 +565,6 @@ function CardItem({
   activity,
   onClearActivity,
   isAdmin,
-  statusLoading,
   isVisible = true,
 }: {
   slot: CardSlot;
@@ -654,7 +587,6 @@ function CardItem({
   activity: RecentActivityItem[];
   onClearActivity: () => void;
   isAdmin: boolean;
-  statusLoading?: boolean;
   isVisible?: boolean;
 }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -709,7 +641,6 @@ function CardItem({
       <div className="flex-1 min-h-0 overflow-hidden">
         {slot.id === "stats_bar" && (
           <StatsBarCard
-            hosts={hosts}
             uptimeFormatted={uptimeFormatted}
             versionText={versionText}
             versionStatus={versionStatus}
@@ -733,11 +664,7 @@ function CardItem({
           />
         )}
         {slot.id === "host_status" && (
-          <HostStatusCard
-            hosts={hosts}
-            onOpenTab={onOpenTab}
-            statusLoading={statusLoading}
-          />
+          <HostStatusCard hosts={hosts} onOpenTab={onOpenTab} />
         )}
         {slot.id === "recent_activity" && (
           <RecentActivityCard
@@ -745,7 +672,6 @@ function CardItem({
             hosts={hosts}
             onOpenTab={onOpenTab}
             onClear={onClearActivity}
-            statusLoading={statusLoading}
           />
         )}
         {!CORE_CARD_IDS.has(slot.id) && (
@@ -865,7 +791,6 @@ type PanelColumnProps = {
   onClearActivity: () => void;
   cardLabels: Record<DashboardCardId, string>;
   isAdmin: boolean;
-  statusLoading: boolean;
   isVisible?: boolean;
 };
 
@@ -893,7 +818,6 @@ function PanelColumn({
   onClearActivity,
   cardLabels,
   isAdmin,
-  statusLoading,
   isVisible = true,
 }: PanelColumnProps) {
   const { t } = useTranslation();
@@ -946,7 +870,6 @@ function PanelColumn({
             activity={activity}
             onClearActivity={onClearActivity}
             isAdmin={isAdmin}
-            statusLoading={statusLoading}
             isVisible={isVisible}
           />
         </div>
@@ -1007,8 +930,6 @@ export function DashboardTab({
 }) {
   const registeredCards = useRegisteredDashboardCards();
   const { t, i18n } = useTranslation();
-  const { initialLoadComplete } = useServerStatus();
-  const statusLoading = !initialLoadComplete;
 
   const [slots, setSlots] = useState<CardSlot[]>(() => {
     try {
@@ -1112,7 +1033,6 @@ export function DashboardTab({
   const [dbHealth, setDbHealth] = useState<"healthy" | "error">("healthy");
   const [credentialCount, setCredentialCount] = useState(0);
   const [activity, setActivity] = useState<RecentActivityItem[]>([]);
-  const statusCheckHosts = hosts.filter(isStatusCheckEnabled);
 
   useEffect(() => {
     let mounted = true;
@@ -1326,7 +1246,6 @@ export function DashboardTab({
     onOpenTab,
     cardLabels,
     isAdmin,
-    statusLoading,
     isVisible,
   };
 
@@ -1424,7 +1343,6 @@ export function DashboardTab({
             >
               {slot.id === "stats_bar" && (
                 <StatsBarCard
-                  hosts={hosts}
                   uptimeFormatted={uptimeFormatted}
                   versionText={versionText}
                   versionStatus={versionStatus}
@@ -1448,11 +1366,7 @@ export function DashboardTab({
                 />
               )}
               {slot.id === "host_status" && (
-                <HostStatusCard
-                  hosts={statusCheckHosts}
-                  onOpenTab={onOpenTab}
-                  statusLoading={statusLoading}
-                />
+                <HostStatusCard hosts={hosts} onOpenTab={onOpenTab} />
               )}
               {slot.id === "recent_activity" && (
                 <RecentActivityCard
@@ -1460,7 +1374,6 @@ export function DashboardTab({
                   hosts={hosts}
                   onOpenTab={onOpenTab}
                   onClear={handleClearActivity}
-                  statusLoading={statusLoading}
                 />
               )}
               {!CORE_CARD_IDS.has(slot.id) && (

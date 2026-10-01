@@ -1,7 +1,6 @@
-/* eslint-disable react-refresh/only-export-components */
 import { rem } from "@/lib/rem";
 import { enabledHostProtocols } from "@/sidebar/host-protocols";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -55,15 +54,6 @@ import {
   type AuthOverrideProtocol,
 } from "@/types/auth-protocols";
 import {
-  useStatusColorScheme,
-  getStatusClasses,
-} from "@/hooks/use-status-color-scheme";
-import {
-  useHostStatus,
-  useHostStatusReason,
-  useServerStatusMeta,
-} from "@/lib/ServerStatusContext";
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -87,31 +77,6 @@ import {
 } from "@/sidebar/host-contributions";
 import { shell } from "@/plugin-host/shell-bridge";
 import type { TabShellCallbacks } from "@/shell/tab-registry";
-
-export function statusCheckEnabled(host: Host): boolean {
-  return host.statusCheckEnabled !== false;
-}
-
-export function buildStatusTooltip(
-  host: Host,
-  status: "online" | "reachable" | "offline",
-  t: (key: string) => string = (k) => k,
-): string {
-  const statusLabel =
-    status === "online"
-      ? t("hosts.status.available")
-      : status === "reachable"
-        ? t("hosts.status.reachable")
-        : t("hosts.status.offline");
-  if (!statusCheckEnabled(host)) return t("hosts.status.monitoringDisabled");
-  const protocols: string[] = [];
-  if (host.enableSsh) protocols.push("SSH");
-  for (const protocol of enabledHostProtocols(host)) {
-    protocols.push(t(protocol.titleKey));
-  }
-  if (protocols.length === 0) return statusLabel;
-  return `${protocols.join(", ")}: ${statusLabel}`;
-}
 
 /** Plugin actions sort by order; connect actions default to the end. */
 function actionOrder(action: HostActionDef): number {
@@ -189,7 +154,6 @@ export function HostItem({
   openOnDoubleClick = false,
   focusExistingTab = true,
   showResourceBars = true,
-  showStatusStripes = true,
   rowActions = "full",
   arrangeMode = false,
   isDragging = false,
@@ -239,8 +203,6 @@ export function HostItem({
   focusExistingTab?: boolean;
   /** Preset-driven: hides the CPU/RAM bars without changing density. */
   showResourceBars?: boolean;
-  /** Preset-driven: hides the per-row status color stripe. */
-  showStatusStripes?: boolean;
   /** "essential" trims the row's management actions to the common few. */
   rowActions?: "essential" | "full";
   /** When true (rearranging unlocked), the row can be dragged: its edges
@@ -276,37 +238,6 @@ export function HostItem({
   const pluginActions = hostActionsFor(allHostActions, host);
   const badges = hostBadgesFor(useHostBadges(), host);
   const pluginMenuItems = hostMenuItemsFor(useHostContextMenuItems(), host);
-  const statusScheme = useStatusColorScheme();
-  const { initialLoadComplete } = useServerStatusMeta();
-  const statusCheckOn = statusCheckEnabled(host);
-  const statusLoading = !initialLoadComplete && statusCheckOn;
-  // Per-host subscription — status polls only re-render rows that flipped.
-  const liveStatus = useHostStatus(Number(host.id), statusCheckOn);
-  const statusReason = useHostStatusReason(Number(host.id), statusCheckOn);
-  const availability =
-    liveStatus === "online" ||
-    liveStatus === "reachable" ||
-    liveStatus === "offline"
-      ? liveStatus
-      : host.status === "reachable"
-        ? "reachable"
-        : host.online
-          ? "online"
-          : "offline";
-  const isOnline = availability === "online";
-  const previousAvailability = useRef(availability);
-  const [statusLocking, setStatusLocking] = useState(false);
-
-  useEffect(() => {
-    const justCameOnline =
-      previousAvailability.current !== "online" && availability === "online";
-    previousAvailability.current = availability;
-    if (!justCameOnline) return;
-
-    setStatusLocking(true);
-    const timeout = window.setTimeout(() => setStatusLocking(false), 400);
-    return () => window.clearTimeout(timeout);
-  }, [availability]);
   const isTouchOnly =
     typeof window !== "undefined" && window.matchMedia("(hover: none)").matches;
   const alwaysShowTray = trayTrigger === "always";
@@ -953,14 +884,6 @@ export function HostItem({
         openHostTab(defaultAction, forceNewTab ? { forceNewTab } : undefined);
       }}
     >
-      {/* Status stripe */}
-      {showStatusStripes && (
-        <div
-          data-locking={statusLocking}
-          className={`host-status-stripe w-[3px] shrink-0 transition-colors motion-interactive ${getStatusClasses(availability, statusScheme, "stripe", statusLoading)}`}
-        />
-      )}
-
       {canDrag && (
         <div
           className="flex items-center justify-center w-4 shrink-0 text-muted-foreground/35 group-hover:text-muted-foreground/70 transition-colors"
@@ -1001,22 +924,11 @@ export function HostItem({
               {selected && <Check className="size-2 text-background" />}
             </div>
           )}
-          <TooltipProvider delayDuration={300}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  className={`${tokens.nameTextSize} font-semibold truncate text-foreground leading-none tracking-tight`}
-                >
-                  {host.name}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {statusReason === "host_key_changed"
-                  ? `${t("hostKey.keyChangedWarning")}: ${t("hostKey.keyChangedDescription")}`
-                  : buildStatusTooltip(host, availability, t)}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <span
+            className={`${tokens.nameTextSize} font-semibold truncate text-foreground leading-none tracking-tight`}
+          >
+            {host.name}
+          </span>
           {host.pin && (
             <Pin className="size-2.5 text-accent-brand/50 shrink-0" />
           )}
@@ -1120,7 +1032,6 @@ export function HostItem({
         {/* Action tray — slides open on hover (default) or via chevron in click-tray mode */}
         <div className={trayVisibilityClass}>
           {tokens.showResourceRow &&
-            isOnline &&
             ((host.cpu != null && host.cpu > 0) ||
               (host.ram != null && host.ram > 0)) && (
               <div className="flex items-center gap-[10.5px] pt-[5.25px]">

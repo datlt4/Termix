@@ -122,8 +122,7 @@ export function SidebarTree({
   );
   // Knobs with no other owner come straight from the interface preset; the
   // ones above still come from the host sidebar preferences blob.
-  const { showResourceBars, showStatusStripes, rowActions } =
-    useAreaPreferences("hostList");
+  const { showResourceBars, rowActions } = useAreaPreferences("hostList");
   const [openFolders, setOpenFolders] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem("hostOpenFolders");
@@ -1090,7 +1089,6 @@ export function SidebarTree({
                       openOnDoubleClick={openOnDoubleClick}
                       focusExistingTab={focusExistingTab}
                       showResourceBars={showResourceBars}
-                      showStatusStripes={showStatusStripes}
                       rowActions={rowActions}
                       arrangeMode={arrangeMode}
                       isDragging={draggedReorderKey === `host:${item.id}`}

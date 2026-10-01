@@ -9,8 +9,7 @@ import type {
   HostTrayTrigger,
 } from "@/types/host-sidebar-preferences";
 import { FolderIconEl } from "@/components/folder-style";
-import { useServerStatus } from "@/lib/ServerStatusContext";
-import { HostItem, statusCheckEnabled } from "../HostItem/HostItem";
+import { HostItem } from "../HostItem/HostItem";
 import { isFolder, folderHasMatch, collectAllHosts } from "../visible-rows";
 import { FolderActions } from "./FolderActions";
 
@@ -140,13 +139,7 @@ export function FolderItem({
   onReorderHoverChange?: (edge: "before" | "after" | null) => void;
 }) {
   const { t } = useTranslation();
-  const { getStatus, initialLoadComplete } = useServerStatus();
   const { total } = folderHostCount(folder);
-  const online = initialLoadComplete
-    ? collectAllHosts(folder.children).filter(
-        (h) => statusCheckEnabled(h) && getStatus(Number(h.id)) === "online",
-      ).length
-    : folderHostCount(folder).online;
   const [dragOver, setDragOver] = useState(false);
   const reorderEdge = isReorderHovered ? reorderHoverEdge : null;
 
@@ -289,12 +282,7 @@ export function FolderItem({
                 </span>
               </span>
               <span className="flex items-center gap-1 text-[10px] tabular-nums shrink-0 ml-1 px-1.5 py-[1px] bg-muted/70">
-                {online > 0 && (
-                  <span className="text-accent-brand font-semibold">
-                    {online}
-                  </span>
-                )}
-                <span className="text-muted-foreground/50">/{total}</span>
+                <span className="text-muted-foreground/50">{total}</span>
               </span>
               {!isGroup && (
                 <FolderActions
