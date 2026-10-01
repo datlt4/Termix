@@ -199,6 +199,16 @@ export function LocalTerminal({
     async function readTextFromClipboard(): Promise<string> {
       const text = await readFromClipboard();
       if (text) return text;
+      // Files copied in Finder / Files carry no text: paste their paths, as
+      // native terminals do. Checked before the image because Finder also
+      // puts the file's icon on the clipboard as an image.
+      const filePaths =
+        (await window.electronAPI
+          ?.readClipboardFilePaths?.()
+          .catch(() => [])) ?? [];
+      if (filePaths.length > 0) {
+        return filePaths.map(quoteTerminalImagePath).join(" ");
+      }
       // An image-only clipboard has no text: upload the image to this
       // machine's local image storage and paste the file path into the
       // shell, mirroring the SSH terminal's Ctrl+V behavior.
@@ -207,7 +217,9 @@ export function LocalTerminal({
         void handleImageUploadRef.current(imageFile, "clipboard");
         return "";
       }
-      toast.error(tRef.current("terminal.clipboardReadFailed"));
+      // The desktop app always has clipboard access, so this is an empty
+      // (or foreign-format) clipboard, not a permission problem.
+      toast.error(tRef.current("terminal.clipboardNothingToPaste"));
       return "";
     }
 

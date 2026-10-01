@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // The native clipboard's current image as a data URL, or null. Fallback
   // for navigator.clipboard.read(), which can fail on Linux.
   readClipboardImage: () => ipcRenderer.invoke("clipboard-read-image"),
+  // Absolute paths of files copied in the OS file manager (existing only).
+  readClipboardFilePaths: () => ipcRenderer.invoke("clipboard-read-file-paths"),
 
   oidcSystemBrowserAuth: (authUrl, callbackPort) =>
     ipcRenderer.invoke("oidc-system-browser-auth", authUrl, callbackPort),

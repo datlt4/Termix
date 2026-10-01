@@ -1233,6 +1233,7 @@
     "connected": "Đã kết nối",
     "clipboardWriteFailed": "Sao chép vào clipboard thất bại. Đảm bảo trang được phục vụ qua HTTPS hoặc localhost.",
     "clipboardReadFailed": "Đọc từ clipboard thất bại. Đảm bảo quyền truy cập clipboard đã được cấp.",
+    "clipboardNothingToPaste": "Không có gì để dán: clipboard không chứa text, ảnh hay file trên máy.",
     "tmuxDetach": "Ngắt khỏi phiên tmux",
     "terminalTitle": "Terminal - {{host}}",
     "terminalWithPath": "Terminal - {{host}}:{{path}}",

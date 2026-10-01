@@ -55,6 +55,8 @@ export interface ElectronAPI {
   setSetting?: (key: string, value: string) => Promise<void>;
   /** The native clipboard's current image as a data URL, or null. */
   readClipboardImage?: () => Promise<string | null>;
+  /** Paths of files copied in the OS file manager that exist locally. */
+  readClipboardFilePaths?: () => Promise<string[]>;
 
   getServerConfig: () => Promise<ServerConfig>;
   saveServerConfig: (config: ServerConfig) => Promise<{ success: boolean }>;

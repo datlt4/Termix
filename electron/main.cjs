@@ -22,7 +22,7 @@ const net = require("net");
 const tls = require("tls");
 const zlib = require("zlib");
 const crypto = require("crypto");
-const { URL, pathToFileURL } = require("url");
+const { URL, pathToFileURL, fileURLToPath } = require("url");
 const { fork, spawn } = require("child_process");
 const pty = require("node-pty");
 const WebSocket = require("ws");
@@ -3133,6 +3133,54 @@ ipcMain.handle("clipboard-read-text", () => clipboard.readText());
 ipcMain.handle("clipboard-read-image", () => {
   const image = clipboard.readImage();
   return image.isEmpty() ? null : image.toDataURL();
+});
+
+// Files copied in Finder / Files (Nautilus) carry no text, so a terminal
+// paste found "nothing" and reported a clipboard permission problem. Returns
+// the absolute paths of the copied files that exist on this machine
+// (clipboard-sync tools such as RustDesk publish placeholder files that do
+// not), or an empty list.
+ipcMain.handle("clipboard-read-file-paths", () => {
+  const candidates = [];
+  const fromUrl = (url) => {
+    try {
+      candidates.push(fileURLToPath(url.trim()));
+    } catch {
+      // not a local file URL
+    }
+  };
+  try {
+    if (process.platform === "darwin") {
+      // Raw paths (XML-escaped), one <string> per copied file.
+      const plist = clipboard.read("NSFilenamesPboardType");
+      for (const match of plist.matchAll(/<string>([^<]*)<\/string>/g)) {
+        candidates.push(
+          match[1]
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&amp;/g, "&"),
+        );
+      }
+      if (candidates.length === 0) {
+        const single = clipboard.read("public.file-url");
+        if (single) fromUrl(single);
+      }
+    } else if (process.platform === "linux") {
+      const raw =
+        clipboard.read("text/uri-list") ||
+        clipboard.read("x-special/gnome-copied-files");
+      for (const line of raw.split(/\r?\n/)) {
+        if (line.startsWith("file://")) fromUrl(line);
+      }
+    }
+  } catch {
+    return [];
+  }
+  return candidates
+    .map((filePath) => path.normalize(filePath))
+    .filter((filePath) => filePath && fs.existsSync(filePath));
 });
 
 ipcMain.handle("local-terminal-start", (event, dimensions = {}) => {
