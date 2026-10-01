@@ -91,7 +91,14 @@ const defaultDeps: PluginLoaderDeps = {
     const response = await fetch(
       absolute(assetUrl(summary, `locales/${path}`)),
     );
-    if (!response.ok) return null;
+    if (!response.ok) {
+      // An unread body keeps its 2 MB response pipe (one fd on Linux) open
+      // for the life of the page, even across GC. Locales are re-requested
+      // on every sync pass, so the leak exhausted the renderer's fd limit
+      // and the window went blank.
+      await response.body?.cancel().catch(() => {});
+      return null;
+    }
     return (await response.json()) as ResourceKey;
   },
 

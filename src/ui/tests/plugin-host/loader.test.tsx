@@ -246,6 +246,27 @@ describe("plugin loader", () => {
     expect(isPluginFrontendActive("alpha")).toBe(true);
   });
 
+  it("releases the body of a locale request that fails", async () => {
+    modules.loc = railPlugin("loc");
+    plugins = [summary("loc", { locales: ["en"] })];
+    configurePluginLoader({
+      fetchPlugins: async () => plugins,
+      importFrontend: async (entry) => modules[entry.id],
+      injectCss: () => null,
+    });
+    const responses: Response[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const response = new Response('{"error":"Not found"}', { status: 404 });
+      responses.push(response);
+      return response;
+    });
+
+    await startPluginRuntime();
+
+    expect(responses.length).toBeGreaterThan(0);
+    for (const response of responses) expect(response.bodyUsed).toBe(true);
+  });
+
   it("settles even when the plugin list cannot be fetched", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     configurePluginLoader({
