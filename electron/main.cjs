@@ -1459,23 +1459,106 @@ function createWindow() {
     }
   }, 3000);
 
+  let loadFailRetries = 0;
   mainWindow.webContents.on(
     "did-fail-load",
     (event, errorCode, errorDescription, validatedURL) => {
+      // -3 = ERR_ABORTED (navigation interrupted by a newer one) — normal.
+      if (errorCode === -3) return;
       console.error(
         "Failed to load:",
         errorCode,
         errorDescription,
         validatedURL,
       );
+      logToFile(
+        "did-fail-load code=" +
+          errorCode +
+          " " +
+          errorDescription +
+          " " +
+          validatedURL,
+      );
+      // A failed navigation leaves a blank/white page — retry a couple of
+      // times so the user is not stuck on a dead window.
+      if (loadFailRetries >= 3) return;
+      loadFailRetries += 1;
+      setTimeout(() => {
+        try {
+          if (!mainWindow.isDestroyed()) mainWindow.webContents.reload();
+        } catch {}
+      }, 1500);
     },
   );
 
   mainWindow.webContents.on("did-finish-load", () => {
+    loadFailRetries = 0;
     console.log("Frontend loaded successfully");
+    logToFile("Frontend loaded successfully");
+  });
+
+  // The renderer can die on its own (OOM, GPU crash, watchdog) and the
+  // window stays up, completely white — previously the app then sat there
+  // forever with no recovery path. Log the reason and reload so the user's
+  // sessions reattach instead of the app having to be restarted by hand.
+  mainWindow.webContents.on("render-process-gone", (event, details) => {
+    logToFile(
+      "RENDERER GONE reason=" +
+        (details && details.reason) +
+        " exitCode=" +
+        (details && details.exitCode) +
+        " — reloading window",
+    );
+    setTimeout(() => {
+      try {
+        if (
+          mainWindow &&
+          !mainWindow.isDestroyed() &&
+          !mainWindow.webContents.isDestroyed()
+        ) {
+          mainWindow.webContents.reload();
+        }
+      } catch (err) {
+        logToFile("render-process-gone reload failed: " + String(err));
+      }
+    }, 500);
+  });
+
+  // Keep the renderer's own console (JS errors, uncaught exceptions) in the
+  // main log, so a blank window is diagnosable after the fact. Only warning/
+  // error level to keep the log readable.
+  mainWindow.webContents.on("console-message", (...args) => {
+    try {
+      let level = -1;
+      let message = "";
+      let line = 0;
+      let source = "";
+      if (typeof args[1] === "number") {
+        level = args[1];
+        message = args[2];
+        line = args[3] || 0;
+        source = args[4] || "";
+      } else if (args[1] && typeof args[1] === "object") {
+        const m = args[1];
+        level = m.level ?? -1;
+        message = m.message ?? "";
+        line = m.line ?? 0;
+        source = m.sourceId || "";
+      }
+      if (level >= 2) {
+        logToFile(
+          "[renderer " +
+            level +
+            "] " +
+            String(message).slice(0, 1500) +
+            (source ? " @" + source + ":" + line : ""),
+        );
+      }
+    } catch {}
   });
 
   mainWindow.on("closed", () => {
+    logToFile("main window closed");
     mainWindow = null;
   });
 
@@ -3617,6 +3700,16 @@ app.on("activate", () => {
   // During launch the ready handler owns window creation; an early
   // activate (macOS activates the app as part of launch) must not race it.
   if (!startupComplete) return;
+  logToFile(
+    "activate: windows=" +
+      BrowserWindow.getAllWindows().length +
+      " mainWindow=" +
+      (mainWindow
+        ? mainWindow.isDestroyed()
+          ? "destroyed"
+          : "alive"
+        : "null"),
+  );
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   } else if (mainWindow) {
