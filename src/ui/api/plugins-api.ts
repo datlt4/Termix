@@ -1,4 +1,5 @@
 import { rbacApi } from "@/main-axios";
+import { invalidateHostsAndStatusCaches } from "@/lib/hosts-request-cache";
 
 export interface PluginTabContribution {
   id: string;
@@ -201,6 +202,10 @@ export async function updatePluginHostSettings(
     settingsPath(pluginId, `host/${encodeURIComponent(String(hostId))}`),
     values,
   );
+  // Host reads carry these values (pluginSettings). The host save before this
+  // write emptied the cache, but a read in between can have refilled it with
+  // the old values, which the editor then showed and saved back.
+  invalidateHostsAndStatusCaches();
   announceSettingsChange(pluginId, "host", hostId);
   return saved;
 }
