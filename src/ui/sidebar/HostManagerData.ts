@@ -150,6 +150,9 @@ export function sshHostToHost(h: SSHHostWithStatus): Host {
     permissionLevel: h.permissionLevel,
     sharedExpiresAt: h.sharedExpiresAt,
     ownerUsername: h.ownerUsername,
+    // The host editor starts from these and saves them back: without them it
+    // showed every plugin setting (tunnels...) as unset and saved that.
+    pluginSettings: h.pluginSettings,
   };
 }
 

@@ -19,6 +19,23 @@ describe("sshHostToHost", () => {
     },
   );
 
+  it("keeps the host's plugin settings for the editor", () => {
+    const tunnels = {
+      enableTunnel: true,
+      tunnelConnections: [{ sourcePort: 5432, endpointHost: "db" }],
+    };
+    const host = sshHostToHost({
+      id: 3,
+      name: "server",
+      ip: "10.0.0.3",
+      port: 22,
+      username: "root",
+      pluginSettings: { tunnels },
+    } as unknown as SSHHostWithStatus);
+
+    expect(host.pluginSettings).toEqual({ tunnels });
+  });
+
   it("preserves remote shared-host identity for local connection auth", () => {
     const host = sshHostToHost({
       id: -12,
